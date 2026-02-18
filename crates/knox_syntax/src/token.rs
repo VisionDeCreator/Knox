@@ -19,6 +19,10 @@ pub enum TokenKind {
     Else,
     Match,
     Return,
+    Struct,
+    Import,
+    Pub,
+    As,
     Ok,
     Err,
     Option,
@@ -43,6 +47,8 @@ pub enum TokenKind {
     Pipe, // |
     Underscore,
     Assign, // =
+    At,       // @
+    ColonColon, // ::
 
     // Operators
     Lt,

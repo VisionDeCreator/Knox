@@ -84,23 +84,27 @@ version = "0.1.0"
 
 fn cmd_build(_target: &str, path: &Path) -> Result<(), String> {
     let path = path.canonicalize().map_err(|e| e.to_string())?;
-    let (source, out_path) = if path.is_dir() {
+    let (compile_path, out_path) = if path.is_dir() {
         let main_path = path.join("main.kx");
-        if main_path.exists() {
-            (
-                std::fs::read_to_string(&main_path).map_err(|e| e.to_string())?,
-                path.join("dist")
-                    .join(
-                        path.file_name()
-                            .unwrap_or_default()
-                            .to_str()
-                            .unwrap_or("out"),
-                    )
-                    .with_extension("wasm"),
-            )
+        let main_path = if main_path.exists() {
+            main_path
         } else {
-            return Err("No main.kx found in directory".into());
+            path.join("src").join("main.kx")
+        };
+        if !main_path.exists() {
+            return Err("No main.kx or src/main.kx found in directory".into());
         }
+        (
+            main_path,
+            path.join("dist")
+                .join(
+                    path.file_name()
+                        .unwrap_or_default()
+                        .to_str()
+                        .unwrap_or("out"),
+                )
+                .with_extension("wasm"),
+        )
     } else if path.extension().map(|e| e == "kx").unwrap_or(false) {
         let out_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("out");
         let out_path = path
@@ -109,16 +113,14 @@ fn cmd_build(_target: &str, path: &Path) -> Result<(), String> {
             .join("dist")
             .join(out_name)
             .with_extension("wasm");
-        (
-            std::fs::read_to_string(&path).map_err(|e| e.to_string())?,
-            out_path,
-        )
+        (path.to_path_buf(), out_path)
     } else {
         return Err("Expected .kx file or project directory".into());
     };
 
-    let wasm = knox_compiler::compile(&source, FileId::new(0)).map_err(|diags| {
-        print_diagnostics(&source, FileId::new(0), &diags);
+    let source_for_diags = std::fs::read_to_string(&compile_path).unwrap_or_default();
+    let wasm = knox_compiler::compile_file(&compile_path).map_err(|diags| {
+        print_diagnostics(&source_for_diags, FileId::new(0), &diags);
         "Compilation failed".to_string()
     })?;
 
@@ -131,13 +133,27 @@ fn cmd_build(_target: &str, path: &Path) -> Result<(), String> {
 
 fn cmd_run(path: &Path) -> Result<(), String> {
     let path = path.canonicalize().map_err(|e| e.to_string())?;
-    let source = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    let wasm = knox_compiler::compile(&source, FileId::new(0)).map_err(|diags| {
+    let compile_path = if path.is_dir() {
+        let main_path = path.join("main.kx");
+        let main_path = if main_path.exists() {
+            main_path
+        } else {
+            path.join("src").join("main.kx")
+        };
+        if !main_path.exists() {
+            return Err("No main.kx or src/main.kx found in directory".into());
+        }
+        main_path
+    } else {
+        path.to_path_buf()
+    };
+    let source = std::fs::read_to_string(&compile_path).map_err(|e| e.to_string())?;
+    let wasm = knox_compiler::compile_file(&compile_path).map_err(|diags| {
         print_diagnostics(&source, FileId::new(0), &diags);
         "Compilation failed".to_string()
     })?;
 
-    let wasm_path = path.parent().unwrap().join(".knox_run.wasm");
+    let wasm_path = compile_path.parent().unwrap().join(".knox_run.wasm");
     std::fs::write(&wasm_path, &wasm).map_err(|e| e.to_string())?;
 
     let wasmtime = which::which("wasmtime").map_err(|_| {

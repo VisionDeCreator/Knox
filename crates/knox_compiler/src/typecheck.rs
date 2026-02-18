@@ -9,6 +9,7 @@ pub struct TypeChecker {
     pub diagnostics: Vec<Diagnostic>,
     file: FileId,
     functions: HashMap<String, FnDecl>,
+    structs: HashMap<String, StructDecl>,
 }
 
 impl TypeChecker {
@@ -17,18 +18,28 @@ impl TypeChecker {
             diagnostics: Vec::new(),
             file,
             functions: HashMap::new(),
+            structs: HashMap::new(),
         }
     }
 
     #[allow(clippy::result_unit_err)]
     pub fn check_root(&mut self, root: &Root) -> Result<(), ()> {
         for item in &root.items {
-            let Item::Fn(f) = item;
-            self.functions.insert(f.name.clone(), f.clone());
+            match item {
+                Item::Fn(f) => {
+                    self.functions.insert(f.name.clone(), f.clone());
+                }
+                Item::Struct(s) => {
+                    self.structs.insert(s.name.clone(), s.clone());
+                }
+                Item::Import(_) => {}
+            }
         }
         for item in &root.items {
-            let Item::Fn(f) = item;
-            self.check_fn(f)?;
+            match item {
+                Item::Fn(f) => self.check_fn(f)?,
+                Item::Struct(_) | Item::Import(_) => {}
+            }
         }
         if !self.functions.contains_key("main") {
             self.diagnostics.push(Diagnostic::error(
@@ -93,6 +104,35 @@ impl TypeChecker {
                     ));
                     Err(())
                 }
+            }
+            Expr::FieldAccess {
+                receiver,
+                field,
+                span,
+            } => {
+                let rec_ty = self.check_expr(receiver, env)?;
+                let Type::Named(struct_name) = rec_ty else {
+                    self.diagnostics.push(Diagnostic::error(
+                        "Field access only on struct types",
+                        Some(Location::new(self.file, *span)),
+                    ));
+                    return Err(());
+                };
+                let Some(s) = self.structs.get(&struct_name) else {
+                    self.diagnostics.push(Diagnostic::error(
+                        format!("Unknown type: {}", struct_name),
+                        Some(Location::new(self.file, *span)),
+                    ));
+                    return Err(());
+                };
+                let Some(f) = s.fields.iter().find(|fld| fld.name == *field) else {
+                    self.diagnostics.push(Diagnostic::error(
+                        format!("Unknown field: {} on {}", field, struct_name),
+                        Some(Location::new(self.file, *span)),
+                    ));
+                    return Err(());
+                };
+                Ok(f.ty.clone())
             }
             Expr::Call { callee, args, span } => {
                 if callee == "print" {
@@ -192,6 +232,7 @@ impl ExprSpan for Expr {
         match self {
             Expr::Literal(_, s) => *s,
             Expr::Ident(_, s) => *s,
+            Expr::FieldAccess { span, .. } => *span,
             Expr::Call { span, .. } => *span,
             Expr::If { span, .. } => *span,
             Expr::Match { span, .. } => *span,

@@ -30,7 +30,7 @@
       "patterns": [
         {
           "name": "keyword.control.knox",
-          "match": "\\b(fn|let|mut|if|else|match|return)\\b"
+          "match": "\\b(fn|let|mut|if|else|match|return|struct|import|pub|as)\\b"
         },
         {
           "name": "constant.language.knox",
@@ -39,6 +39,14 @@
         {
           "name": "storage.type.knox",
           "match": "\\b(Option|Result|dynamic)\\b"
+        },
+        {
+          "name": "keyword.operator.module.knox",
+          "match": "::"
+        },
+        {
+          "name": "storage.annotation.knox",
+          "match": "@"
         }
       ]
     },

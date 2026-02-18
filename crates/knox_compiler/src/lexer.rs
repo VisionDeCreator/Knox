@@ -126,6 +126,10 @@ impl<'a> Lexer<'a> {
                     "else" => TokenKind::Else,
                     "match" => TokenKind::Match,
                     "return" => TokenKind::Return,
+                    "struct" => TokenKind::Struct,
+                    "import" => TokenKind::Import,
+                    "pub" => TokenKind::Pub,
+                    "as" => TokenKind::As,
                     "Ok" => TokenKind::Ok,
                     "Err" => TokenKind::Err,
                     "Option" => TokenKind::Option,
@@ -167,7 +171,15 @@ impl<'a> Lexer<'a> {
                 '}' => TokenKind::RBrace,
                 '[' => TokenKind::LBracket,
                 ']' => TokenKind::RBracket,
-                ':' => TokenKind::Colon,
+                ':' => {
+                    if self.peek() == Some(':') {
+                        self.next();
+                        TokenKind::ColonColon
+                    } else {
+                        TokenKind::Colon
+                    }
+                }
+                '@' => TokenKind::At,
                 ',' => TokenKind::Comma,
                 '.' => TokenKind::Dot,
                 '?' => TokenKind::Question,

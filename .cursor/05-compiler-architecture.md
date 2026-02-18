@@ -1,25 +1,27 @@
 # Knox Compiler Architecture
 
-## Pipeline (MVP)
+## Pipeline
 
-1. **Lexer** — Source text → tokens (identifiers, keywords, literals, symbols). Handles comments.
-2. **Parser** — Tokens → AST (functions, let, if, match, calls, literals). Diagnostics with file/line spans.
-3. **AST** — Defined in `knox_syntax`: nodes, spans, diagnostics helpers.
-4. **Type checker** — Resolve types for literals, function signatures, `print`, and nominal `Option`/`Result`. Emit errors with spans.
-5. **Lowering** — (Minimal in MVP.) Map typed AST to a simple IR or directly to codegen inputs.
-6. **Wasm codegen** — Emit Wasm module (e.g. wat/wasm) for `main` and builtins like `print` (WASI fd_write).
+1. **Lexer** — Source → tokens (identifiers, keywords, literals, symbols including `@`, `::`, `import`, `struct`, `pub`).
+2. **Parser** — Tokens → AST (functions, structs, imports, let, if, match, field access, etc.).
+3. **Desugar** — Expand `@pub(get, set)` on struct fields into generated getter/setter `FnDecl` items. Runs after parse, before typecheck.
+4. **AST** — Defined in `knox_syntax`: `Root`, `Item` (Fn, Struct, Import), `FnDecl` (with `pub_vis`), `StructDecl`, `StructField`, `FieldAttrs`, `ImportDecl`, `Expr::FieldAccess`, etc.
+5. **Module loader** — (Optional.) For packages: resolve internal modules (`src/a/b.kx` → `a::b`) and external deps from `knox.toml`; build module graph.
+6. **Type checker** — Resolve types, check function/struct/field access, enforce visibility (only `pub` importable). Requires struct and function maps.
+7. **Wasm codegen** — Emit Wasm for `main` and builtins (e.g. `print` via WASI). Struct/accessor codegen can be minimal in MVP.
 
 ## Crates
 
-- **knox_syntax** — Tokens, AST nodes, spans, diagnostic types. No I/O.
-- **knox_compiler** — Lexer, parser, type checker, orchestration. Depends on knox_syntax, knox_codegen_wasm.
-- **knox_codegen_wasm** — Wasm emitter (memory, funcs, exports). Uses wasm-encoder or similar.
-- **knox_runtime** — Tiny runtime shims (WASI print stub; web placeholder). Linked or imported in generated Wasm.
+- **knox_syntax** — Tokens, AST, spans, diagnostics.
+- **knox_compiler** — Lexer, parser, desugar, modules, type checker, orchestration.
+- **knox_codegen_wasm** — Wasm emitter.
+- **knox_pkg** — Manifest and lockfile parsing.
+- **knox_runtime** — Tiny runtime shims.
 
 ## Diagnostics
 
-- All phases report errors with file path and line/column (or span). No panics for user input; collect and print diagnostics.
+- All phases report errors with file/line/span. No panics for user input.
 
 ## Hello World path
 
-- `hello.kx` → lex → parse → typecheck (`main() -> ()`, `print(string)`) → codegen (export `main`, import `print` from runtime/WASI) → `dist/hello_world.wasm` → Wasmtime runs it.
+- Single file → lex → parse → desugar → typecheck → codegen → Wasm → Wasmtime.

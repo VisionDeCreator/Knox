@@ -51,7 +51,11 @@ impl Parser {
         let start = 0;
         let mut items = Vec::new();
         while !matches!(self.peek(), TokenKind::Eof) {
-            if matches!(self.peek(), TokenKind::Fn) {
+            if matches!(self.peek(), TokenKind::Import) {
+                items.push(Item::Import(self.parse_import()?));
+            } else if matches!(self.peek(), TokenKind::Struct) {
+                items.push(Item::Struct(self.parse_struct()?));
+            } else if matches!(self.peek(), TokenKind::Pub) | matches!(self.peek(), TokenKind::Fn) {
                 items.push(Item::Fn(self.parse_fn()?));
             } else {
                 let t = self.next().unwrap();
@@ -66,6 +70,10 @@ impl Parser {
     }
 
     fn parse_fn(&mut self) -> Result<FnDecl, String> {
+        let pub_vis = matches!(self.peek(), TokenKind::Pub);
+        if pub_vis {
+            self.next(); // consume pub
+        }
         self.expect(TokenKind::Fn)?;
         let start = self.last_span.start;
         let name_t = self.next().ok_or("Expected function name")?;
@@ -104,7 +112,165 @@ impl Parser {
             return_type,
             body,
             span: self.span_from(start),
+            pub_vis,
         })
+    }
+
+    fn parse_import(&mut self) -> Result<ImportDecl, String> {
+        self.expect(TokenKind::Import)?;
+        let start = self.last_span.start;
+        let mut path = Vec::new();
+        let first = self.next().ok_or("Expected module path")?;
+        let name = match &first.kind {
+            TokenKind::Ident(s) => s.clone(),
+            _ => return Err("Expected module path".into()),
+        };
+        path.push(name);
+        while matches!(self.peek(), TokenKind::ColonColon) {
+            self.next(); // ::
+            if matches!(self.peek(), TokenKind::LBrace) {
+                break; // path done, then { a, b }
+            }
+            let t = self.next().ok_or("Expected path segment or item")?;
+            let s = match &t.kind {
+                TokenKind::Ident(x) => x.clone(),
+                _ => return Err("Expected path segment".into()),
+            };
+            if matches!(self.peek(), TokenKind::ColonColon) {
+                path.push(s);
+            } else {
+                // single item: import auth::token::verify
+                let alias = if matches!(self.peek(), TokenKind::As) {
+                    self.next();
+                    let at = self.next().ok_or("Expected alias")?;
+                    match &at.kind {
+                        TokenKind::Ident(a) => Some(a.clone()),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                return Ok(ImportDecl {
+                    path,
+                    alias,
+                    items: Some(vec![s]),
+                    span: self.span_from(start),
+                });
+            }
+        }
+        let items = if matches!(self.peek(), TokenKind::LBrace) {
+            self.next(); // {
+            let mut names = Vec::new();
+            while !matches!(self.peek(), TokenKind::RBrace) {
+                let t = self.next().ok_or("Expected item name")?;
+                let s = match &t.kind {
+                    TokenKind::Ident(x) => x.clone(),
+                    _ => return Err("Expected item name".into()),
+                };
+                names.push(s);
+                if !matches!(self.peek(), TokenKind::RBrace) {
+                    self.expect(TokenKind::Comma)?;
+                }
+            }
+            self.expect(TokenKind::RBrace)?;
+            Some(names)
+        } else {
+            None
+        };
+        let alias = if matches!(self.peek(), TokenKind::As) {
+            self.next();
+            let t = self.next().ok_or("Expected alias name")?;
+            match &t.kind {
+                TokenKind::Ident(a) => Some(a.clone()),
+                _ => return Err("Expected alias name".into()),
+            }
+        } else {
+            None
+        };
+        Ok(ImportDecl {
+            path,
+            alias,
+            items,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_struct(&mut self) -> Result<StructDecl, String> {
+        self.expect(TokenKind::Struct)?;
+        let start = self.last_span.start;
+        let name_t = self.next().ok_or("Expected struct name")?;
+        let name = match &name_t.kind {
+            TokenKind::Ident(s) => s.clone(),
+            _ => return Err("Expected struct name".into()),
+        };
+        self.expect(TokenKind::LBrace)?;
+        let mut fields = Vec::new();
+        while !matches!(self.peek(), TokenKind::RBrace) {
+            fields.push(self.parse_struct_field()?);
+            if !matches!(self.peek(), TokenKind::RBrace) {
+                // optional comma
+                if matches!(self.peek(), TokenKind::Comma) {
+                    self.next();
+                }
+            }
+        }
+        self.expect(TokenKind::RBrace)?;
+        Ok(StructDecl {
+            name,
+            fields,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_struct_field(&mut self) -> Result<StructField, String> {
+        let start = self.last_span.start;
+        let name_t = self.next().ok_or("Expected field name")?;
+        let name = match &name_t.kind {
+            TokenKind::Ident(s) => s.clone(),
+            _ => return Err("Expected field name".into()),
+        };
+        self.expect(TokenKind::Colon)?;
+        let ty = self.parse_type()?;
+        let attrs = if matches!(self.peek(), TokenKind::At) {
+            Some(self.parse_field_attrs()?)
+        } else {
+            None
+        };
+        Ok(StructField {
+            name,
+            ty,
+            attrs,
+            span: self.span_from(start),
+        })
+    }
+
+    fn parse_field_attrs(&mut self) -> Result<FieldAttrs, String> {
+        self.expect(TokenKind::At)?;
+        self.expect(TokenKind::Pub)?;
+        self.expect(TokenKind::LParen)?;
+        let mut get = false;
+        let mut set = false;
+        loop {
+            let t = self.next().ok_or("Expected get or set")?;
+            match &t.kind {
+                TokenKind::Ident(s) => {
+                    if s == "get" {
+                        get = true;
+                    } else if s == "set" {
+                        set = true;
+                    } else {
+                        return Err(format!("Expected get or set, got {}", s));
+                    }
+                }
+                _ => return Err("Expected get or set".into()),
+            }
+            if !matches!(self.peek(), TokenKind::Comma) {
+                break;
+            }
+            self.next(); // comma
+        }
+        self.expect(TokenKind::RParen)?;
+        Ok(FieldAttrs { get, set })
     }
 
     fn parse_type(&mut self) -> Result<Type, String> {
@@ -168,9 +334,7 @@ impl Parser {
                 TokenKind::Ident(s) => s.clone(),
                 _ => return Err("Expected binding name".into()),
             };
-            self.expect(TokenKind::Colon)?;
-            let _ty = self.parse_type()?; // optional in grammar; we parse it
-            self.expect(TokenKind::Eq)?; // wait, we don't have = token. Let me check. We had Assign or = . We used Ident("="). So we need to accept something for assignment. Actually in the sample they use "let bal = sender.balance()" — so we need = . I added Ident("=") in lexer. So we need to expect either = or maybe we have no = in token. Let me add = to the lexer as a proper token.
+            self.expect(TokenKind::Assign)?;
             let init = self.parse_expr()?;
             self.expect_semicolon_or_eol();
             return Ok(Stmt::Let {
@@ -325,6 +489,17 @@ impl Parser {
                 Ok(inner)
             }
             TokenKind::Ident(callee) => {
+                let mut name = callee.clone();
+                while matches!(self.peek(), TokenKind::ColonColon) {
+                    self.next(); // ::
+                    let next_t = self.next().ok_or("Expected identifier after ::")?;
+                    let seg = match &next_t.kind {
+                        TokenKind::Ident(s) => s.clone(),
+                        _ => return Err("Expected identifier after ::".into()),
+                    };
+                    name.push_str("::");
+                    name.push_str(&seg);
+                }
                 if matches!(self.peek(), TokenKind::LParen) {
                     self.next(); // (
                     let mut args = Vec::new();
@@ -336,12 +511,12 @@ impl Parser {
                     }
                     self.expect(TokenKind::RParen)?;
                     Ok(Expr::Call {
-                        callee: callee.clone(),
+                        callee: name,
                         args,
                         span: self.span_from(start),
                     })
                 } else {
-                    Ok(Expr::Ident(callee.clone(), t.span))
+                    Ok(Expr::Ident(name, t.span))
                 }
             }
             TokenKind::Ok | TokenKind::Err => {
@@ -388,8 +563,40 @@ mod tests {
         let mut parser = Parser::new(tokens, FileId::new(0));
         let root = parser.parse_root().unwrap();
         assert_eq!(root.items.len(), 1);
-        let Item::Fn(f) = &root.items[0];
+        let Item::Fn(f) = &root.items[0] else { panic!("expected Fn") };
         assert_eq!(f.name, "main");
         assert_eq!(f.params.len(), 0);
+    }
+
+    #[test]
+    fn parse_struct_with_pub_accessors() {
+        let src = r#"
+struct User {
+  name: string
+  age: int @pub(get, set)
+  email: string @pub(get)
+}
+"#;
+        let tokens = lexer::Lexer::new(src, FileId::new(0)).collect_tokens();
+        let mut parser = Parser::new(tokens, FileId::new(0));
+        let root = parser.parse_root().unwrap();
+        assert_eq!(root.items.len(), 1);
+        let Item::Struct(s) = &root.items[0] else { panic!("expected Struct") };
+        assert_eq!(s.name, "User");
+        assert_eq!(s.fields.len(), 3);
+        assert!(s.fields[1].attrs.as_ref().unwrap().get);
+        assert!(s.fields[1].attrs.as_ref().unwrap().set);
+    }
+
+    #[test]
+    fn parse_import() {
+        let src = "import auth::token::{verify, sign}";
+        let tokens = lexer::Lexer::new(src, FileId::new(0)).collect_tokens();
+        let mut parser = Parser::new(tokens, FileId::new(0));
+        let root = parser.parse_root().unwrap();
+        assert_eq!(root.items.len(), 1);
+        let Item::Import(imp) = &root.items[0] else { panic!("expected Import") };
+        assert_eq!(imp.path, ["auth", "token"]);
+        assert_eq!(imp.items.as_ref().unwrap(), &["verify", "sign"]);
     }
 }

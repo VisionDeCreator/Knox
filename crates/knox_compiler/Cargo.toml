@@ -7,3 +7,4 @@ description = "Knox compiler: lexer, parser, type checker, pipeline"
 [dependencies]
 knox_syntax = { path = "../knox_syntax" }
 knox_codegen_wasm = { path = "../knox_codegen_wasm" }
+knox_pkg = { path = "../knox_pkg" }

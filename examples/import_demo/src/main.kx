@@ -1,0 +1,6 @@
+// Import the greet module. Once package build is wired, greet::greet() would be available.
+import greet
+
+fn main() -> () {
+  print(greet::greet())
+}

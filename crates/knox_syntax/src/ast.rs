@@ -12,6 +12,8 @@ pub struct Root {
 #[derive(Clone, Debug)]
 pub enum Item {
     Fn(FnDecl),
+    Struct(StructDecl),
+    Import(ImportDecl),
 }
 
 #[derive(Clone, Debug)]
@@ -20,6 +22,41 @@ pub struct FnDecl {
     pub params: Vec<Param>,
     pub return_type: Type,
     pub body: Block,
+    pub span: Span,
+    /// Whether this function is public (importable from other modules).
+    pub pub_vis: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct StructDecl {
+    pub name: String,
+    pub fields: Vec<StructField>,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub struct StructField {
+    pub name: String,
+    pub ty: Type,
+    pub attrs: Option<FieldAttrs>,
+    pub span: Span,
+}
+
+/// Attribute for field accessor generation: @pub(get), @pub(set), @pub(get, set).
+#[derive(Clone, Debug, Default)]
+pub struct FieldAttrs {
+    pub get: bool,
+    pub set: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct ImportDecl {
+    /// Module path segments, e.g. ["auth", "token"] for auth::token.
+    pub path: Vec<String>,
+    /// Alias for the whole module, e.g. `import http as h` -> Some("h").
+    pub alias: Option<String>,
+    /// If Some, import only these names; if None, import the whole module.
+    pub items: Option<Vec<String>>,
     pub span: Span,
 }
 
@@ -52,6 +89,12 @@ pub enum Stmt {
 pub enum Expr {
     Literal(Literal, Span),
     Ident(String, Span),
+    /// Receiver.field (for getters and general field access).
+    FieldAccess {
+        receiver: Box<Expr>,
+        field: String,
+        span: Span,
+    },
     Call {
         callee: String,
         args: Vec<Expr>,
