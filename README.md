@@ -68,6 +68,42 @@ cargo test
 
 `.kx` files will then get syntax highlighting (keywords, strings, numbers, comments, types, functions).
 
+## Installing the Cursor Extension
+
+You can install the extension manually using the `.vsix` package.
+
+### Method 1 — Install from the Cursor UI
+
+1. Open Cursor.
+2. Open the Extensions panel:
+   - **macOS:** `Cmd + Shift + X`
+   - **Windows/Linux:** `Ctrl + Shift + X`
+3. Click the three dots menu in the top right of the Extensions panel.
+4. Click **Install from VSIX**.
+5. Select the `.vsix` file and install.
+6. Restart Cursor if the extension does not appear immediately.
+
+### Method 2 — Install via CLI
+
+First install the Cursor CLI command:
+
+1. Open Cursor → **Command Palette** → run:
+   ```
+   Shell Command: Install 'cursor' command in PATH
+   ```
+
+Then install the extension from the terminal:
+
+```bash
+cursor --install-extension your-extension.vsix
+```
+
+Verify installation:
+
+```bash
+cursor --list-extensions
+```
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
