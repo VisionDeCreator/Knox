@@ -305,6 +305,14 @@ impl Parser {
                 self.expect(TokenKind::RParen)?;
                 Ok(Type::Unit)
             }
+            TokenKind::Amp => {
+                let is_mut = matches!(self.peek(), TokenKind::Mut);
+                if is_mut {
+                    self.next();
+                }
+                let inner = self.parse_type()?;
+                Ok(Type::Ref(Box::new(inner), is_mut))
+            }
             _ => Err(format!("Expected type, got {:?}", t.kind)),
         }
     }
@@ -334,12 +342,19 @@ impl Parser {
                 TokenKind::Ident(s) => s.clone(),
                 _ => return Err("Expected binding name".into()),
             };
+            let type_annot = if matches!(self.peek(), TokenKind::Colon) {
+                self.next();
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
             self.expect(TokenKind::Assign)?;
             let init = self.parse_expr()?;
             self.expect_semicolon_after_stmt()?;
             return Ok(Stmt::Let {
                 name,
                 mutability,
+                type_annot,
                 init,
                 span: self.span_from(start),
             });
@@ -355,6 +370,28 @@ impl Parser {
             return Ok(Stmt::Return(value, self.span_from(start)));
         }
         let expr = self.parse_expr()?;
+        if matches!(self.peek(), TokenKind::Assign) {
+            self.next();
+            let value = self.parse_expr()?;
+            self.expect_semicolon_after_stmt()?;
+            if let Expr::Ident(ref name, _) = &expr {
+                return Ok(Stmt::Assign {
+                    name: name.clone(),
+                    expr: value,
+                    span: self.span_from(start),
+                });
+            }
+            if let Expr::Deref { expr: ref deref_expr, .. } = &expr {
+                if let Expr::Ident(ref name, _) = &**deref_expr {
+                    return Ok(Stmt::AssignDeref {
+                        name: name.clone(),
+                        expr: value,
+                        span: self.span_from(start),
+                    });
+                }
+            }
+            return Err("Assignment target must be a variable or *variable".into());
+        }
         self.expect_semicolon_after_stmt()?;
         Ok(Stmt::Expr(expr))
     }
@@ -372,9 +409,80 @@ impl Parser {
         self.parse_expr_bp(0)
     }
 
-    fn parse_expr_bp(&mut self, _min_bp: u8) -> Result<Expr, String> {
+    /// Binding power for infix: (left_bp, right_bp). Higher = tighter. Left-assoc: right_bp = left_bp - 1.
+    fn infix_binding_power(&mut self) -> Option<(BinOp, u8, u8)> {
+        let (op, left_bp, right_bp) = match self.peek() {
+            TokenKind::OrOr => (BinOp::Or, 1, 0),
+            TokenKind::AndAnd => (BinOp::And, 2, 1),
+            TokenKind::Eq | TokenKind::Ne => {
+                let op = if matches!(self.peek(), TokenKind::Eq) {
+                    BinOp::Eq
+                } else {
+                    BinOp::Ne
+                };
+                (op, 3, 2)
+            }
+            TokenKind::Lt | TokenKind::Le | TokenKind::Gt | TokenKind::Ge => {
+                let op = match self.peek() {
+                    TokenKind::Lt => BinOp::Lt,
+                    TokenKind::Le => BinOp::Le,
+                    TokenKind::Gt => BinOp::Gt,
+                    TokenKind::Ge => BinOp::Ge,
+                    _ => unreachable!(),
+                };
+                (op, 4, 3)
+            }
+            TokenKind::Plus | TokenKind::Minus => {
+                let op = if matches!(self.peek(), TokenKind::Plus) {
+                    BinOp::Add
+                } else {
+                    BinOp::Sub
+                };
+                (op, 5, 4)
+            }
+            TokenKind::Star | TokenKind::Slash | TokenKind::Percent => {
+                let op = match self.peek() {
+                    TokenKind::Star => BinOp::Mul,
+                    TokenKind::Slash => BinOp::Div,
+                    TokenKind::Percent => BinOp::Rem,
+                    _ => unreachable!(),
+                };
+                (op, 6, 5)
+            }
+            _ => return None,
+        };
+        Some((op, left_bp, right_bp))
+    }
+
+    fn parse_expr_bp(&mut self, min_bp: u8) -> Result<Expr, String> {
+        let left = self.parse_prefix()?;
+        self.parse_expr_infix(left, min_bp)
+    }
+
+    fn parse_expr_infix(&mut self, mut left: Expr, min_bp: u8) -> Result<Expr, String> {
+        loop {
+            let Some((op, left_bp, right_bp)) = self.infix_binding_power() else {
+                break;
+            };
+            if left_bp < min_bp {
+                break;
+            }
+            self.next(); // consume op
+            let right = self.parse_expr_bp(right_bp)?;
+            let span = self.last_span;
+            left = Expr::BinaryOp {
+                op,
+                left: Box::new(left),
+                right: Box::new(right),
+                span,
+            };
+        }
+        Ok(left)
+    }
+
+    fn parse_prefix(&mut self) -> Result<Expr, String> {
         let start = self.tokens.peek().map(|t| t.span.start).unwrap_or(0);
-        let expr = if matches!(self.peek(), TokenKind::If) {
+        if matches!(self.peek(), TokenKind::If) {
             self.next();
             let cond = Box::new(self.parse_expr()?);
             self.expect(TokenKind::LBrace)?;
@@ -389,13 +497,14 @@ impl Parser {
             } else {
                 None
             };
-            Expr::If {
+            return Ok(Expr::If {
                 cond,
                 then_block,
                 else_block,
                 span: self.span_from(start),
-            }
-        } else if matches!(self.peek(), TokenKind::Match) {
+            });
+        }
+        if matches!(self.peek(), TokenKind::Match) {
             self.next();
             let scrutinee = Box::new(self.parse_expr()?);
             self.expect(TokenKind::LBrace)?;
@@ -415,20 +524,62 @@ impl Parser {
                 }
             }
             self.expect(TokenKind::RBrace)?;
-            Expr::Match {
+            return Ok(Expr::Match {
                 scrutinee,
                 arms,
                 span: self.span_from(start),
-            }
-        } else if matches!(self.peek(), TokenKind::LBrace) {
+            });
+        }
+        if matches!(self.peek(), TokenKind::LBrace) {
             self.next();
             let block = self.parse_block()?;
             self.expect(TokenKind::RBrace)?;
-            Expr::Block(block, self.span_from(start))
-        } else {
-            self.parse_primary()?
-        };
-        Ok(expr)
+            return Ok(Expr::Block(block, self.span_from(start)));
+        }
+        if matches!(self.peek(), TokenKind::Minus) {
+            self.next();
+            let expr = self.parse_expr_bp(7)?;
+            return Ok(Expr::UnaryOp {
+                op: UnOp::Neg,
+                expr: Box::new(expr),
+                span: self.span_from(start),
+            });
+        }
+        if matches!(self.peek(), TokenKind::Not) {
+            self.next();
+            let expr = self.parse_expr_bp(7)?;
+            return Ok(Expr::UnaryOp {
+                op: UnOp::Not,
+                expr: Box::new(expr),
+                span: self.span_from(start),
+            });
+        }
+        if matches!(self.peek(), TokenKind::Amp) {
+            self.next();
+            let is_mut = matches!(self.peek(), TokenKind::Mut);
+            if is_mut {
+                self.next();
+            }
+            let t = self.next().ok_or("Expected identifier after &")?;
+            let target = match &t.kind {
+                TokenKind::Ident(s) => s.clone(),
+                _ => return Err("Expected variable name for borrow".into()),
+            };
+            return Ok(Expr::Ref {
+                is_mut,
+                target,
+                span: self.span_from(start),
+            });
+        }
+        if matches!(self.peek(), TokenKind::Star) {
+            self.next();
+            let expr = self.parse_expr_bp(7)?;
+            return Ok(Expr::Deref {
+                expr: Box::new(expr),
+                span: self.span_from(start),
+            });
+        }
+        self.parse_primary()
     }
 
     fn parse_match_pattern(&mut self) -> Result<MatchPattern, String> {
@@ -634,5 +785,14 @@ struct User {
         let Item::Import(imp) = &root.items[0] else { panic!("expected Import") };
         assert_eq!(imp.path, ["auth", "token"]);
         assert_eq!(imp.items.as_ref().unwrap(), &["verify", "sign"]);
+    }
+
+    #[test]
+    fn parse_match() {
+        let src = "fn main() -> () { let x = match 0 { 0 => 10, _ => 20 }; }";
+        let tokens = lexer::Lexer::new(src, FileId::new(0)).collect_tokens();
+        let mut parser = Parser::new(tokens, FileId::new(0));
+        let root = parser.parse_root().unwrap();
+        assert_eq!(root.items.len(), 1);
     }
 }

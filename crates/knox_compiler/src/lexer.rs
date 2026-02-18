@@ -139,6 +139,7 @@ impl<'a> Lexer<'a> {
                     "None" => TokenKind::None,
                     "true" => TokenKind::True,
                     "false" => TokenKind::False,
+                    "_" => TokenKind::Underscore,
                     _ => TokenKind::Ident(s),
                 };
                 return Token::new(kind, span);
@@ -183,7 +184,6 @@ impl<'a> Lexer<'a> {
                 ',' => TokenKind::Comma,
                 '.' => TokenKind::Dot,
                 '?' => TokenKind::Question,
-                '|' => TokenKind::Pipe,
                 '_' => TokenKind::Underscore,
                 '<' => TokenKind::Lt,
                 '>' => TokenKind::Gt,
@@ -203,17 +203,37 @@ impl<'a> Lexer<'a> {
                         self.next();
                         TokenKind::Ne
                     } else {
-                        TokenKind::Ident("!".into())
+                        TokenKind::Not
                     }
                 }
+                '&' => {
+                    if self.peek() == Some('&') {
+                        self.next();
+                        TokenKind::AndAnd
+                    } else {
+                        TokenKind::Amp
+                    }
+                }
+                '|' => {
+                    if self.peek() == Some('|') {
+                        self.next();
+                        TokenKind::OrOr
+                    } else {
+                        TokenKind::Pipe
+                    }
+                }
+                '+' => TokenKind::Plus,
                 '-' => {
                     if self.peek() == Some('>') {
                         self.next();
                         TokenKind::Arrow
                     } else {
-                        TokenKind::Ident("-".into())
+                        TokenKind::Minus
                     }
                 }
+                '*' => TokenKind::Star,
+                '/' => TokenKind::Slash,
+                '%' => TokenKind::Percent,
                 ';' => TokenKind::Semicolon,
                 _ => continue,
             };

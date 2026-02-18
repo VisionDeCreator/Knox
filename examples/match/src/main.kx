@@ -1,0 +1,9 @@
+fn main() -> () {
+  let x = 2;
+  let y = match x {
+    0 => 10,
+    1 => 20,
+    _ => 30
+  };
+  print("match ok");
+}

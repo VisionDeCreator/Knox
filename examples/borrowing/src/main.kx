@@ -1,0 +1,9 @@
+fn inc(x: &mut int) -> () {
+  *x = *x + 1;
+}
+
+fn main() -> () {
+  let mut a = 1;
+  inc(&mut a);
+  print("borrowing ok");
+}

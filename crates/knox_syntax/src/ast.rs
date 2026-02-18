@@ -78,7 +78,18 @@ pub enum Stmt {
     Let {
         name: String,
         mutability: bool,
+        type_annot: Option<Type>,
         init: Expr,
+        span: Span,
+    },
+    Assign {
+        name: String,
+        expr: Expr,
+        span: Span,
+    },
+    AssignDeref {
+        name: String,
+        expr: Expr,
         span: Span,
     },
     Expr(Expr),
@@ -100,6 +111,26 @@ pub enum Expr {
         args: Vec<Expr>,
         span: Span,
     },
+    BinaryOp {
+        op: BinOp,
+        left: Box<Expr>,
+        right: Box<Expr>,
+        span: Span,
+    },
+    UnaryOp {
+        op: UnOp,
+        expr: Box<Expr>,
+        span: Span,
+    },
+    Ref {
+        is_mut: bool,
+        target: String,
+        span: Span,
+    },
+    Deref {
+        expr: Box<Expr>,
+        span: Span,
+    },
     If {
         cond: Box<Expr>,
         then_block: Block,
@@ -112,6 +143,29 @@ pub enum Expr {
         span: Span,
     },
     Block(Block, Span),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BinOp {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Eq,
+    Ne,
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    And,
+    Or,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UnOp {
+    Neg,
+    Not,
 }
 
 #[derive(Clone, Debug)]
@@ -150,6 +204,7 @@ pub enum Type {
     Option(Box<Type>),
     Result(Box<Type>, Box<Type>),
     Named(String), // for User, Account, Address, Error etc.
+    Ref(Box<Type>, bool), // &T or &mut T
 }
 
 impl Type {

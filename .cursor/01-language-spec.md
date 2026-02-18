@@ -50,10 +50,27 @@ struct Name {
 - Inside `{ }`, each statement must end with `;`.
 - **match**: arms do not take a semicolon after the arm expression (e.g. `0 => 10,`). The whole `match` statement must end with `;` when used as a statement.
 
+## Variables and Mutability
+
+- `let name = expr;` — immutable; `let mut name = expr;` — mutable. Optional type: `let name: Type = expr;`.
+- Assignment: `name = expr;` only to `mut` variables. Through reference: `*ref = expr;`.
+
+## Operators and Precedence
+
+- **Unary:** `!` (bool), `-` (negation for int/u64).
+- **Multiplicative:** `*`, `/`, `%`.
+- **Additive:** `+`, `-` (+ supports string concat).
+- **Comparison:** `<`, `<=`, `>`, `>=`, `==`, `!=` (return bool).
+- **Logical:** `&&`, `||` (short-circuit). Precedence: `||` < `&&` < equality < comparison < additive < multiplicative < unary.
+
+## Borrowing (MVP)
+
+- Types: `&T`, `&mut T`. Create: `&x`, `&mut x` (only from mut for `&mut`). Deref: `*ref`.
+- `*x = expr;` for assign-through-reference. MVP: local variables only; borrow checker is flow-insensitive, conservative.
+
 ## Bindings and Control Flow
 
-- `let name = expr;` — immutable; `let mut name = expr;` — mutable.
-- **if** / **match** / **return** as before.
+- **if** / **match** / **return** as before. Match: literal and `_` patterns; must be exhaustive.
 
 ## Core Types
 
@@ -65,10 +82,7 @@ struct Name {
 
 - Use `Option<T>` and `Result<T, E>`.
 
-## Operators
-
 - `?` — propagate `Result`.
-- Comparison: `<`, `>`, `<=`, `>=`, `==`, `!=`
 
 ## Pattern Matching
 

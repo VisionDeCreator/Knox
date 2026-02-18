@@ -58,6 +58,15 @@ pub enum TokenKind {
     Ge,
     Eq,
     Ne,
+    Plus,
+    Minus,
+    Star,
+    Slash,
+    Percent,
+    Not,
+    AndAnd, // &&
+    OrOr,   // ||
+    Amp,    // & for refs
 
     Eof,
 }

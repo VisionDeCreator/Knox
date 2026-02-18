@@ -39,7 +39,7 @@ Expected output: **Hello, Knox!**
 | **`.cursor/`** | Internal architecture and spec docs (source of truth for the compiler) |
 | **`docs/`** | User-facing language and tooling documentation |
 | **Crates** | `knox_cli`, `knox_compiler`, `knox_syntax`, `knox_codegen_wasm`, `knox_pkg`, `knox_runtime` |
-| **Examples** | `examples/hello_world/`, `examples/import_demo/` (import syntax), `examples/transfer_parse/` |
+| **Examples** | `examples/hello_world/`, `examples/import_demo/`, `examples/vars_ops/`, `examples/match/`, `examples/borrowing/` (borrowing parses/typechecks; codegen TODO), `examples/transfer_parse/` |
 | **VS Code** | `tools/vscode-knox/` — TextMate grammar and language config for `.kx` |
 
 ## How modules work
@@ -58,6 +58,13 @@ See [docs/modules-and-imports.md](docs/modules-and-imports.md) for full detail.
 - **`@pub(get, set)`** — Generates both. All access is through methods; safe mutation only via setters.
 
 See [docs/structs-and-accessors.md](docs/structs-and-accessors.md) for full detail.
+
+## Language basics
+
+- **Variables:** `let x = 1;`, `let mut y = 2;`, `y = y + 1;`. Semicolons required.
+- **Operators:** Arithmetic (`+`, `-`, `*`, `/`, `%`), comparison (`<`, `<=`, `>`, `>=`, `==`, `!=`), logical (`&&`, `||`, `!`). `+` for int, u64, or string concat.
+- **Match:** `match x { 0 => 10, 1 => 20, _ => 30 }`; literal and `_` patterns; exhaustive.
+- **Borrowing:** `&T`, `&mut T`, `*ref`; `fn inc(x: &mut int) { *x = *x + 1; }`. Codegen for refs is not yet implemented (parse/typecheck work).
 
 ## Targets
 
@@ -98,6 +105,39 @@ cargo test
 4. In VS Code: **Extensions: Install from VSIX...** and select the file.
 
 `.kx` files get syntax highlighting (keywords, strings, numbers, comments, structs, imports, `@pub`, etc.).
+
+## Installing the Cursor Extension
+
+You can install the extension manually using the `.vsix` package.
+
+### Method 1 — Install from the Cursor UI
+
+1. Open Cursor.
+2. Open the Extensions panel:
+   - **macOS:** `Cmd + Shift + X`
+   - **Windows/Linux:** `Ctrl + Shift + X`
+3. Click the **three dots** menu in the top right of the Extensions panel.
+4. Click **Install from VSIX**.
+5. Select the `.vsix` file and install.
+6. Restart Cursor if the extension does not appear immediately.
+
+### Method 2 — Install via CLI
+
+First install the Cursor CLI command:
+
+1. Open Cursor → **Command Palette** → run: **Shell Command: Install 'cursor' command in PATH**
+
+Then install the extension from the terminal:
+
+```bash
+cursor --install-extension your-extension.vsix
+```
+
+Verify installation:
+
+```bash
+cursor --list-extensions
+```
 
 ## License
 
