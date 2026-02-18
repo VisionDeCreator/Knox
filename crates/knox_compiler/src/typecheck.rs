@@ -106,7 +106,6 @@ impl TypeChecker {
                         format!("Unknown variable: {}", name),
                         Some(Location::new(self.file, *span)),
                     ));
-                    ()
                 })?;
                 let inner = match var_ty {
                     Type::Ref(inner, true) => inner.as_ref().clone(),
@@ -127,7 +126,6 @@ impl TypeChecker {
                         format!("Unknown variable: {}", name),
                         Some(Location::new(self.file, *span)),
                     ));
-                    ()
                 })?;
                 if !mutability {
                     self.diagnostics.push(Diagnostic::error(
@@ -358,7 +356,6 @@ impl TypeChecker {
                         format!("Unknown variable: {}", target),
                         Some(Location::new(self.file, *span)),
                     ));
-                    ()
                 })?;
                 if *is_mut && !mutability {
                     self.diagnostics.push(Diagnostic::error(

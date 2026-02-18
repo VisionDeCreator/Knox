@@ -44,7 +44,7 @@ pub fn compile_file(path: &Path) -> Result<Vec<u8>, Vec<Diagnostic>> {
         .map_err(|e| vec![Diagnostic::error(e, None)])?;
     desugar::desugar_root(&mut root);
 
-    let dir = path.parent().unwrap_or_else(|| path.as_ref());
+    let dir = path.parent().unwrap_or(path);
     let mut merged_items = root.items.clone();
     for item in &root.items {
         if let knox_syntax::ast::Item::Import(imp) = item {

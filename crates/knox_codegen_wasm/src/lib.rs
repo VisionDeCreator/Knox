@@ -9,6 +9,9 @@ use wasm_encoder::{
     ValType,
 };
 
+/// Result of building aux (i32)->(i32) helper functions: list of (name, type_idx, body) and fn_indices.
+type AuxFunctionsResult = Result<(Vec<(String, u32, Function)>, HashMap<String, u32>), String>;
+
 /// Emit a Wasm module that exports _start (calls main) and main. Imports fd_write from WASI.
 /// Supports simple main (single print) and full main (lets, assignment, arithmetic, print).
 pub fn emit_wasm(root: &Root, out: &mut impl Write) -> Result<(), String> {
@@ -138,9 +141,7 @@ fn is_simple_main(f: &FnDecl) -> bool {
 }
 
 /// Build (i32)->(i32) helper functions for &mut int (copy-in/copy-out). Returns (name, type_idx, Function) and fn_indices for call emission.
-fn build_aux_functions(
-    root: &Root,
-) -> Result<(Vec<(String, u32, Function)>, HashMap<String, u32>), String> {
+fn build_aux_functions(root: &Root) -> AuxFunctionsResult {
     let type_i32_to_i32 = 3u32;
     let mut out: Vec<(String, u32, Function)> = Vec::new();
     let mut fn_indices: HashMap<String, u32> = HashMap::new();
@@ -244,6 +245,7 @@ fn build_main_body(
     Ok((f, data))
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_stmt(
     stmt: &Stmt,
     local_indices: &HashMap<String, u32>,
@@ -360,7 +362,7 @@ fn emit_print(
 fn emit_expr(
     expr: &Expr,
     local_indices: &HashMap<String, u32>,
-    num_locals: u32,
+    _num_locals: u32,
     out: &mut Vec<Instruction>,
 ) -> Result<(), String> {
     match expr {
@@ -380,8 +382,8 @@ fn emit_expr(
         Expr::BinaryOp {
             op, left, right, ..
         } => {
-            emit_expr(left, local_indices, num_locals, out)?;
-            emit_expr(right, local_indices, num_locals, out)?;
+            emit_expr(left, local_indices, _num_locals, out)?;
+            emit_expr(right, local_indices, _num_locals, out)?;
             match op {
                 BinOp::Add => out.push(Instruction::I32Add),
                 BinOp::Sub => out.push(Instruction::I32Sub),
@@ -401,31 +403,31 @@ fn emit_expr(
         Expr::UnaryOp { op, expr, .. } => match op {
             UnOp::Neg => {
                 out.push(Instruction::I32Const(0));
-                emit_expr(expr, local_indices, num_locals, out)?;
+                emit_expr(expr, local_indices, _num_locals, out)?;
                 out.push(Instruction::I32Sub);
             }
             UnOp::Not => {
-                emit_expr(expr, local_indices, num_locals, out)?;
+                emit_expr(expr, local_indices, _num_locals, out)?;
                 out.push(Instruction::I32Eqz);
             }
         },
         Expr::Match {
             scrutinee, arms, ..
         } => {
-            emit_expr(scrutinee, local_indices, num_locals, out)?;
+            emit_expr(scrutinee, local_indices, _num_locals, out)?;
             for arm in arms {
                 if let MatchPattern::Literal(Literal::Int(n), _) = arm.pattern {
                     out.push(Instruction::I32Const(n as i32));
                     out.push(Instruction::I32Eq);
                     out.push(Instruction::Drop);
-                    emit_expr(&arm.body, local_indices, num_locals, out)?;
+                    emit_expr(&arm.body, local_indices, _num_locals, out)?;
                     return Ok(());
                 }
             }
             if let Some(arm) = arms.last() {
                 if matches!(arm.pattern, MatchPattern::Wildcard(_)) {
                     out.push(Instruction::Drop);
-                    emit_expr(&arm.body, local_indices, num_locals, out)?;
+                    emit_expr(&arm.body, local_indices, _num_locals, out)?;
                     return Ok(());
                 }
             }
@@ -434,7 +436,7 @@ fn emit_expr(
         Expr::Call { callee, args, .. } => {
             if *callee != "print" {
                 for a in args {
-                    emit_expr(a, local_indices, num_locals, out)?;
+                    emit_expr(a, local_indices, _num_locals, out)?;
                 }
                 return Err(
                     "Function calls other than print() not yet implemented in codegen".to_string(),
@@ -449,7 +451,7 @@ fn emit_expr(
             out.push(Instruction::LocalGet(idx));
         }
         Expr::Deref { expr, .. } => {
-            emit_expr(expr, local_indices, num_locals, out)?;
+            emit_expr(expr, local_indices, _num_locals, out)?;
         }
         _ => return Err(format!("Unsupported expr: {:?}", expr)),
     }

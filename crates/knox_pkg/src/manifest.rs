@@ -19,6 +19,7 @@ pub enum Dependency {
     Path { path: String },
 }
 
+#[allow(dead_code)]
 pub fn load_manifest(path: &Path) -> io::Result<Manifest> {
     let s = std::fs::read_to_string(path)?;
     toml::from_str(&s).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
