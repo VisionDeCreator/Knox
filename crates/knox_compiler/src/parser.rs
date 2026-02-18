@@ -361,7 +361,9 @@ impl Parser {
         }
         if matches!(self.peek(), TokenKind::Return) {
             self.next();
-            let value = if matches!(self.peek(), TokenKind::RBrace) || matches!(self.peek(), TokenKind::Semicolon) {
+            let value = if matches!(self.peek(), TokenKind::RBrace)
+                || matches!(self.peek(), TokenKind::Semicolon)
+            {
                 None
             } else {
                 Some(self.parse_expr()?)
@@ -381,7 +383,11 @@ impl Parser {
                     span: self.span_from(start),
                 });
             }
-            if let Expr::Deref { expr: ref deref_expr, .. } = &expr {
+            if let Expr::Deref {
+                expr: ref deref_expr,
+                ..
+            } = &expr
+            {
                 if let Expr::Ident(ref name, _) = &**deref_expr {
                     return Ok(Stmt::AssignDeref {
                         name: name.clone(),
@@ -715,7 +721,9 @@ mod tests {
         let mut parser = Parser::new(tokens, FileId::new(0));
         let root = parser.parse_root().unwrap();
         assert_eq!(root.items.len(), 1);
-        let Item::Fn(f) = &root.items[0] else { panic!("expected Fn") };
+        let Item::Fn(f) = &root.items[0] else {
+            panic!("expected Fn")
+        };
         assert_eq!(f.name, "main");
         assert_eq!(f.params.len(), 0);
     }
@@ -768,7 +776,9 @@ struct User {
         let mut parser = Parser::new(tokens, FileId::new(0));
         let root = parser.parse_root().unwrap();
         assert_eq!(root.items.len(), 1);
-        let Item::Struct(s) = &root.items[0] else { panic!("expected Struct") };
+        let Item::Struct(s) = &root.items[0] else {
+            panic!("expected Struct")
+        };
         assert_eq!(s.name, "User");
         assert_eq!(s.fields.len(), 3);
         assert!(s.fields[1].attrs.as_ref().unwrap().get);
@@ -782,7 +792,9 @@ struct User {
         let mut parser = Parser::new(tokens, FileId::new(0));
         let root = parser.parse_root().unwrap();
         assert_eq!(root.items.len(), 1);
-        let Item::Import(imp) = &root.items[0] else { panic!("expected Import") };
+        let Item::Import(imp) = &root.items[0] else {
+            panic!("expected Import")
+        };
         assert_eq!(imp.path, ["auth", "token"]);
         assert_eq!(imp.items.as_ref().unwrap(), &["verify", "sign"]);
     }

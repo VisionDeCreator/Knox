@@ -66,14 +66,22 @@ impl TypeChecker {
         Ok(())
     }
 
-    fn check_block(&mut self, block: &Block, env: &mut HashMap<String, (Type, bool)>) -> Result<(), ()> {
+    fn check_block(
+        &mut self,
+        block: &Block,
+        env: &mut HashMap<String, (Type, bool)>,
+    ) -> Result<(), ()> {
         for stmt in &block.stmts {
             self.check_stmt(stmt, env)?;
         }
         Ok(())
     }
 
-    fn check_stmt(&mut self, stmt: &Stmt, env: &mut HashMap<String, (Type, bool)>) -> Result<(), ()> {
+    fn check_stmt(
+        &mut self,
+        stmt: &Stmt,
+        env: &mut HashMap<String, (Type, bool)>,
+    ) -> Result<(), ()> {
         match stmt {
             Stmt::Let {
                 name,
@@ -142,7 +150,11 @@ impl TypeChecker {
         Ok(())
     }
 
-    fn check_expr(&mut self, expr: &Expr, env: &mut HashMap<String, (Type, bool)>) -> Result<Type, ()> {
+    fn check_expr(
+        &mut self,
+        expr: &Expr,
+        env: &mut HashMap<String, (Type, bool)>,
+    ) -> Result<Type, ()> {
         match expr {
             Expr::Literal(lit, span) => Ok(self.type_of_literal(lit, *span)),
             Expr::Ident(name, span) => {
@@ -265,7 +277,12 @@ impl TypeChecker {
                     Ok(Type::Unit)
                 }
             }
-            Expr::BinaryOp { op, left, right, span } => {
+            Expr::BinaryOp {
+                op,
+                left,
+                right,
+                span,
+            } => {
                 use knox_syntax::ast::BinOp;
                 let lt = self.check_expr(left, env)?;
                 let rt = self.check_expr(right, env)?;
@@ -279,7 +296,8 @@ impl TypeChecker {
                             Ok(Type::String)
                         } else {
                             self.diagnostics.push(Diagnostic::error(
-                                "Operator + requires int+int, u64+u64, or string+string".to_string(),
+                                "Operator + requires int+int, u64+u64, or string+string"
+                                    .to_string(),
                                 Some(Location::new(self.file, *span)),
                             ));
                             Err(())
@@ -330,7 +348,11 @@ impl TypeChecker {
                     }
                 }
             }
-            Expr::Ref { is_mut, target, span } => {
+            Expr::Ref {
+                is_mut,
+                target,
+                span,
+            } => {
                 let (ty, mutability) = env.get(target).ok_or_else(|| {
                     self.diagnostics.push(Diagnostic::error(
                         format!("Unknown variable: {}", target),
@@ -369,17 +391,19 @@ impl TypeChecker {
         arms: &[MatchArm],
         span: Span,
     ) -> Result<(), ()> {
-        let has_wildcard = arms.iter().any(|a| matches!(a.pattern, MatchPattern::Wildcard(_)));
+        let has_wildcard = arms
+            .iter()
+            .any(|a| matches!(a.pattern, MatchPattern::Wildcard(_)));
         if has_wildcard {
             return Ok(());
         }
         if scrut_ty == Type::Bool {
-            let has_true = arms.iter().any(|a| {
-                matches!(&a.pattern, MatchPattern::Literal(Literal::Bool(true), _))
-            });
-            let has_false = arms.iter().any(|a| {
-                matches!(&a.pattern, MatchPattern::Literal(Literal::Bool(false), _))
-            });
+            let has_true = arms
+                .iter()
+                .any(|a| matches!(&a.pattern, MatchPattern::Literal(Literal::Bool(true), _)));
+            let has_false = arms
+                .iter()
+                .any(|a| matches!(&a.pattern, MatchPattern::Literal(Literal::Bool(false), _)));
             if has_true && has_false {
                 return Ok(());
             }

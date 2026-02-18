@@ -4,4 +4,4 @@ mod lockfile;
 mod manifest;
 
 pub use lockfile::*;
-pub use manifest::*;
+pub use manifest::{Dependency, Manifest};

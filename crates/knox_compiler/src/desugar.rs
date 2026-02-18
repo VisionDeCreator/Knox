@@ -45,7 +45,9 @@ pub fn desugar_root(root: &mut Root) {
 fn generate_accessors(s: &StructDecl) -> Vec<FnDecl> {
     let mut out = Vec::new();
     for field in &s.fields {
-        let Some(ref attrs) = field.attrs else { continue };
+        let Some(ref attrs) = field.attrs else {
+            continue;
+        };
         let span = field.span;
         if attrs.get {
             out.push(generate_getter(s, field, span));

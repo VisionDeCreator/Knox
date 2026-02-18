@@ -203,7 +203,7 @@ pub enum Type {
     Dynamic,
     Option(Box<Type>),
     Result(Box<Type>, Box<Type>),
-    Named(String), // for User, Account, Address, Error etc.
+    Named(String),        // for User, Account, Address, Error etc.
     Ref(Box<Type>, bool), // &T or &mut T
 }
 

@@ -46,8 +46,8 @@ pub enum TokenKind {
     Question,
     Pipe, // |
     Underscore,
-    Assign, // =
-    At,       // @
+    Assign,     // =
+    At,         // @
     ColonColon, // ::
     Semicolon,  // ;
 

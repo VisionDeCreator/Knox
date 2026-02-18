@@ -58,11 +58,15 @@ pub fn compile_file(path: &Path) -> Result<Vec<u8>, Vec<Diagnostic>> {
                             None,
                         )]
                     })?;
-                    let dep_tokens = lexer::Lexer::new(&dep_source, FileId::new(0)).collect_tokens();
+                    let dep_tokens =
+                        lexer::Lexer::new(&dep_source, FileId::new(0)).collect_tokens();
                     let mut dep_parser = parser::Parser::new(dep_tokens, FileId::new(0));
-                    let mut dep_root = dep_parser
-                        .parse_root()
-                        .map_err(|e| vec![Diagnostic::error(format!("{}: {}", dep_path.display(), e), None)])?;
+                    let mut dep_root = dep_parser.parse_root().map_err(|e| {
+                        vec![Diagnostic::error(
+                            format!("{}: {}", dep_path.display(), e),
+                            None,
+                        )]
+                    })?;
                     desugar::desugar_root(&mut dep_root);
                     for dep_item in &dep_root.items {
                         if let knox_syntax::ast::Item::Fn(f) = dep_item {
@@ -87,7 +91,8 @@ pub fn compile_file(path: &Path) -> Result<Vec<u8>, Vec<Diagnostic>> {
         .check_root(&merged_root)
         .map_err(|_| typechecker.diagnostics)?;
     let mut wasm = Vec::new();
-    knox_codegen_wasm::emit_wasm(&merged_root, &mut wasm).map_err(|e| vec![Diagnostic::error(e, None)])?;
+    knox_codegen_wasm::emit_wasm(&merged_root, &mut wasm)
+        .map_err(|e| vec![Diagnostic::error(e, None)])?;
     Ok(wasm)
 }
 

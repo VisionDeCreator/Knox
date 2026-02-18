@@ -5,8 +5,8 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use wasm_encoder::{
     CodeSection, ConstExpr, DataSection, EntityType, ExportKind, ExportSection, Function,
-    FunctionSection, ImportSection, MemorySection, MemoryType, Module, TypeSection, ValType,
-    Instruction,
+    FunctionSection, ImportSection, Instruction, MemorySection, MemoryType, Module, TypeSection,
+    ValType,
 };
 
 /// Emit a Wasm module that exports _start (calls main) and main. Imports fd_write from WASI.
@@ -64,24 +64,25 @@ pub fn emit_wasm(root: &Root, out: &mut impl Write) -> Result<(), String> {
     );
     module.section(&import);
 
-    let (_helper_idx, main_idx, start_idx) = if use_simple && get_main_print_string(root).1.is_some() {
-        let mut funcs = FunctionSection::new();
-        funcs.function(type_string_fn);
-        funcs.function(type_main);
-        funcs.function(type_main);
-        module.section(&funcs);
-        (1u32, 2u32, 3u32)
-    } else {
-        let mut funcs = FunctionSection::new();
-        for (_, type_idx, _) in &aux_functions {
-            funcs.function(*type_idx);
-        }
-        funcs.function(type_main);
-        funcs.function(type_main);
-        module.section(&funcs);
-        let n_aux = aux_functions.len() as u32;
-        (0u32, n_aux + 1u32, n_aux + 2u32)
-    };
+    let (_helper_idx, main_idx, start_idx) =
+        if use_simple && get_main_print_string(root).1.is_some() {
+            let mut funcs = FunctionSection::new();
+            funcs.function(type_string_fn);
+            funcs.function(type_main);
+            funcs.function(type_main);
+            module.section(&funcs);
+            (1u32, 2u32, 3u32)
+        } else {
+            let mut funcs = FunctionSection::new();
+            for (_, type_idx, _) in &aux_functions {
+                funcs.function(*type_idx);
+            }
+            funcs.function(type_main);
+            funcs.function(type_main);
+            module.section(&funcs);
+            let n_aux = aux_functions.len() as u32;
+            (0u32, n_aux + 1u32, n_aux + 2u32)
+        };
 
     let mut mem = MemorySection::new();
     mem.memory(MemoryType {
@@ -137,7 +138,9 @@ fn is_simple_main(f: &FnDecl) -> bool {
 }
 
 /// Build (i32)->(i32) helper functions for &mut int (copy-in/copy-out). Returns (name, type_idx, Function) and fn_indices for call emission.
-fn build_aux_functions(root: &Root) -> Result<(Vec<(String, u32, Function)>, HashMap<String, u32>), String> {
+fn build_aux_functions(
+    root: &Root,
+) -> Result<(Vec<(String, u32, Function)>, HashMap<String, u32>), String> {
     let type_i32_to_i32 = 3u32;
     let mut out: Vec<(String, u32, Function)> = Vec::new();
     let mut fn_indices: HashMap<String, u32> = HashMap::new();
@@ -151,7 +154,9 @@ fn build_aux_functions(root: &Root) -> Result<(Vec<(String, u32, Function)>, Has
             continue;
         }
         let p = &f.params[0];
-        let Type::Ref(inner, is_mut) = &p.ty else { continue };
+        let Type::Ref(inner, is_mut) = &p.ty else {
+            continue;
+        };
         if !is_mut || !matches!(inner.as_ref(), Type::Int) {
             continue;
         }
@@ -198,7 +203,10 @@ fn build_aux_function_body(f: &FnDecl) -> Result<Function, String> {
     Ok(func)
 }
 
-fn build_main_body(main_fn: &FnDecl, fn_indices: &HashMap<String, u32>) -> Result<(Function, Vec<u8>), String> {
+fn build_main_body(
+    main_fn: &FnDecl,
+    fn_indices: &HashMap<String, u32>,
+) -> Result<(Function, Vec<u8>), String> {
     let mut local_indices: HashMap<String, u32> = HashMap::new();
     let mut next_local = 0u32;
     for stmt in &main_fn.body.stmts {
@@ -262,7 +270,9 @@ fn emit_stmt(
             if ref_params.contains(name) {
                 out.push(Instruction::Return);
             } else {
-                let idx = *local_indices.get(name).ok_or("unknown variable for *x = ...")?;
+                let idx = *local_indices
+                    .get(name)
+                    .ok_or("unknown variable for *x = ...")?;
                 out.push(Instruction::LocalSet(idx));
             }
         }
@@ -278,8 +288,15 @@ fn emit_stmt(
                     }
                     out.push(Instruction::Call(fn_idx));
                     for a in args {
-                        if let Expr::Ref { is_mut: true, target, .. } = a {
-                            let idx = *local_indices.get(target).ok_or(format!("Unknown variable: {}", target))?;
+                        if let Expr::Ref {
+                            is_mut: true,
+                            target,
+                            ..
+                        } = a
+                        {
+                            let idx = *local_indices
+                                .get(target)
+                                .ok_or(format!("Unknown variable: {}", target))?;
                             out.push(Instruction::LocalSet(idx));
                         }
                     }
@@ -325,7 +342,11 @@ fn emit_print(
             data[12..16].copy_from_slice(&len.to_le_bytes());
             *data_len += len;
         }
-        _ => return Err("print: only string or int literal supported in full main for now".to_string()),
+        _ => {
+            return Err(
+                "print: only string or int literal supported in full main for now".to_string(),
+            )
+        }
     }
     out.push(Instruction::I32Const(1));
     out.push(Instruction::I32Const(8));
@@ -351,10 +372,14 @@ fn emit_expr(
         }
         Expr::Literal(_, _) => return Err("Only int/bool in expr for codegen".into()),
         Expr::Ident(name, _) => {
-            let idx = *local_indices.get(name).ok_or(format!("Unknown variable: {}", name))?;
+            let idx = *local_indices
+                .get(name)
+                .ok_or(format!("Unknown variable: {}", name))?;
             out.push(Instruction::LocalGet(idx));
         }
-        Expr::BinaryOp { op, left, right, .. } => {
+        Expr::BinaryOp {
+            op, left, right, ..
+        } => {
             emit_expr(left, local_indices, num_locals, out)?;
             emit_expr(right, local_indices, num_locals, out)?;
             match op {
@@ -373,20 +398,20 @@ fn emit_expr(
                 BinOp::Or => out.push(Instruction::I32Or),
             }
         }
-        Expr::UnaryOp { op, expr, .. } => {
-            match op {
-                UnOp::Neg => {
-                    out.push(Instruction::I32Const(0));
-                    emit_expr(expr, local_indices, num_locals, out)?;
-                    out.push(Instruction::I32Sub);
-                }
-                UnOp::Not => {
-                    emit_expr(expr, local_indices, num_locals, out)?;
-                    out.push(Instruction::I32Eqz);
-                }
+        Expr::UnaryOp { op, expr, .. } => match op {
+            UnOp::Neg => {
+                out.push(Instruction::I32Const(0));
+                emit_expr(expr, local_indices, num_locals, out)?;
+                out.push(Instruction::I32Sub);
             }
-        }
-        Expr::Match { scrutinee, arms, .. } => {
+            UnOp::Not => {
+                emit_expr(expr, local_indices, num_locals, out)?;
+                out.push(Instruction::I32Eqz);
+            }
+        },
+        Expr::Match {
+            scrutinee, arms, ..
+        } => {
             emit_expr(scrutinee, local_indices, num_locals, out)?;
             for arm in arms {
                 if let MatchPattern::Literal(Literal::Int(n), _) = arm.pattern {
@@ -411,12 +436,16 @@ fn emit_expr(
                 for a in args {
                     emit_expr(a, local_indices, num_locals, out)?;
                 }
-                return Err("Function calls other than print() not yet implemented in codegen".to_string());
+                return Err(
+                    "Function calls other than print() not yet implemented in codegen".to_string(),
+                );
             }
             return Err("print() should be handled in emit_stmt".to_string());
         }
         Expr::Ref { target, .. } => {
-            let idx = *local_indices.get(target).ok_or(format!("Unknown variable: {}", target))?;
+            let idx = *local_indices
+                .get(target)
+                .ok_or(format!("Unknown variable: {}", target))?;
             out.push(Instruction::LocalGet(idx));
         }
         Expr::Deref { expr, .. } => {
@@ -430,24 +459,23 @@ fn emit_expr(
 /// Returns (string bytes including newline, Some(callee) if string came from print(callee())).
 fn get_main_print_string(root: &Root) -> (Vec<u8>, Option<String>) {
     for item in &root.items {
-        let knox_syntax::ast::Item::Fn(f) = item else { continue };
+        let knox_syntax::ast::Item::Fn(f) = item else {
+            continue;
+        };
         if f.name != "main" {
             continue;
         }
         for stmt in &f.body.stmts {
-            let knox_syntax::ast::Stmt::Expr(knox_syntax::ast::Expr::Call {
-                callee,
-                args,
-                ..
-            }) = stmt else { continue };
+            let knox_syntax::ast::Stmt::Expr(knox_syntax::ast::Expr::Call { callee, args, .. }) =
+                stmt
+            else {
+                continue;
+            };
             if *callee != "print" || args.len() != 1 {
                 continue;
             }
             match &args[0] {
-                knox_syntax::ast::Expr::Literal(
-                    knox_syntax::ast::Literal::String(s),
-                    _,
-                ) => {
+                knox_syntax::ast::Expr::Literal(knox_syntax::ast::Literal::String(s), _) => {
                     let mut v = s.clone().into_bytes();
                     v.push(b'\n');
                     return (v, None);
@@ -472,17 +500,16 @@ fn get_main_print_string(root: &Root) -> (Vec<u8>, Option<String>) {
 
 fn get_return_string_literal(root: &Root, fn_name: &str) -> Option<String> {
     for item in &root.items {
-        let knox_syntax::ast::Item::Fn(f) = item else { continue };
+        let knox_syntax::ast::Item::Fn(f) = item else {
+            continue;
+        };
         if f.name != fn_name {
             continue;
         }
         let [knox_syntax::ast::Stmt::Return(Some(expr), _)] = f.body.stmts.as_slice() else {
             continue;
         };
-        if let knox_syntax::ast::Expr::Literal(
-            knox_syntax::ast::Literal::String(s),
-            _,
-        ) = expr {
+        if let knox_syntax::ast::Expr::Literal(knox_syntax::ast::Literal::String(s), _) = expr {
             return Some(s.clone());
         }
     }
