@@ -336,7 +336,7 @@ impl Parser {
             };
             self.expect(TokenKind::Assign)?;
             let init = self.parse_expr()?;
-            self.expect_semicolon_or_eol();
+            self.expect_semicolon_after_stmt()?;
             return Ok(Stmt::Let {
                 name,
                 mutability,
@@ -346,25 +346,26 @@ impl Parser {
         }
         if matches!(self.peek(), TokenKind::Return) {
             self.next();
-            let value = if matches!(self.peek(), TokenKind::RBrace) || self.is_eol_after_expr() {
+            let value = if matches!(self.peek(), TokenKind::RBrace) || matches!(self.peek(), TokenKind::Semicolon) {
                 None
             } else {
                 Some(self.parse_expr()?)
             };
-            self.expect_semicolon_or_eol();
+            self.expect_semicolon_after_stmt()?;
             return Ok(Stmt::Return(value, self.span_from(start)));
         }
         let expr = self.parse_expr()?;
-        self.expect_semicolon_or_eol();
+        self.expect_semicolon_after_stmt()?;
         Ok(Stmt::Expr(expr))
     }
 
-    fn expect_semicolon_or_eol(&mut self) {
-        // MVP: no semicolons in grammar? Sample has no semicolons. So we don't require ; . Just continue.
-    }
-
-    fn is_eol_after_expr(&mut self) -> bool {
-        matches!(self.peek(), TokenKind::RBrace | TokenKind::Eof)
+    fn expect_semicolon_after_stmt(&mut self) -> Result<(), String> {
+        if matches!(self.peek(), TokenKind::Semicolon) {
+            self.next();
+            Ok(())
+        } else {
+            Err("Expected ';' after statement".into())
+        }
     }
 
     fn parse_expr(&mut self) -> Result<Expr, String> {
@@ -558,7 +559,7 @@ mod tests {
 
     #[test]
     fn parse_hello_main() {
-        let src = r#"fn main() -> () { print("Hello, Knox!") }"#;
+        let src = r#"fn main() -> () { print("Hello, Knox!"); }"#;
         let tokens = lexer::Lexer::new(src, FileId::new(0)).collect_tokens();
         let mut parser = Parser::new(tokens, FileId::new(0));
         let root = parser.parse_root().unwrap();
@@ -566,6 +567,41 @@ mod tests {
         let Item::Fn(f) = &root.items[0] else { panic!("expected Fn") };
         assert_eq!(f.name, "main");
         assert_eq!(f.params.len(), 0);
+    }
+
+    #[test]
+    fn semicolon_required_after_statement() {
+        let src = r#"fn main() -> () { let x = 1 }"#;
+        let tokens = lexer::Lexer::new(src, FileId::new(0)).collect_tokens();
+        let mut parser = Parser::new(tokens, FileId::new(0));
+        let res = parser.parse_root();
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Expected ';' after statement"));
+    }
+
+    #[test]
+    fn semicolon_required_after_expr_statement() {
+        let src = r#"fn main() -> () { print("hi") }"#;
+        let tokens = lexer::Lexer::new(src, FileId::new(0)).collect_tokens();
+        let mut parser = Parser::new(tokens, FileId::new(0));
+        let res = parser.parse_root();
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Expected ';' after statement"));
+    }
+
+    #[test]
+    fn valid_semicolons_parse() {
+        let src = r#"
+fn main() -> () {
+  let x = 1;
+  let mut y = 2;
+  return x;
+}
+"#;
+        let tokens = lexer::Lexer::new(src, FileId::new(0)).collect_tokens();
+        let mut parser = Parser::new(tokens, FileId::new(0));
+        let root = parser.parse_root().unwrap();
+        assert_eq!(root.items.len(), 1);
     }
 
     #[test]

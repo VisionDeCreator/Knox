@@ -88,6 +88,10 @@
           "match": "->|=>"
         },
         {
+          "name": "punctuation.terminator.statement.knox",
+          "match": ";"
+        },
+        {
           "name": "keyword.operator.other.knox",
           "match": "[?:.,|_<>!=]=?"
         }

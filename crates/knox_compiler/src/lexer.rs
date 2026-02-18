@@ -214,6 +214,7 @@ impl<'a> Lexer<'a> {
                         TokenKind::Ident("-".into())
                     }
                 }
+                ';' => TokenKind::Semicolon,
                 _ => continue,
             };
             return Token::new(kind, span);
@@ -278,5 +279,12 @@ mod tests {
         let tokens = Lexer::new(src, FileId::new(0)).collect_tokens();
         assert!(matches!(tokens[0].kind, TokenKind::Arrow));
         assert!(matches!(tokens[1].kind, TokenKind::FatArrow));
+    }
+
+    #[test]
+    fn lex_semicolon() {
+        let src = "let x = 1;";
+        let tokens = Lexer::new(src, FileId::new(0)).collect_tokens();
+        assert!(matches!(tokens[4].kind, TokenKind::Semicolon));
     }
 }

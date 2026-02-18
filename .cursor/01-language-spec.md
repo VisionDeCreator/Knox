@@ -17,7 +17,7 @@
 
 - **Identifiers:** `[a-zA-Z_][a-zA-Z0-9_]*`
 - **Keywords:** `fn`, `let`, `mut`, `if`, `match`, `return`, `struct`, `import`, `pub`, `as`, `Ok`, `Err`, `Option`, `Result`, `dynamic`, `true`, `false`
-- **Symbols:** `( ) { } [ ] : , -> => . ? | _ @ ::`
+- **Symbols:** `( ) { } [ ] : , ; -> => . ? | _ @ ::`
 - **Comments:** `//` line comments, `/* */` block comments
 
 ## Functions
@@ -42,6 +42,13 @@ struct Name {
 - `@pub(set)` generates a public setter: `pub fn setFieldName(mut self, v: Type) -> ()` (camelCase: `age` → `setAge`, `user_id` → `setUserId`).
 - `@pub(get, set)` generates both.
 - Direct external field access is forbidden. Conflicting manual method → compiler error.
+
+## Statements and Semicolons
+
+- Every statement must end with `;`. No implicit semicolons.
+- Applies to: `let` declarations, assignments, expression statements, `return` statements, function calls used as statements.
+- Inside `{ }`, each statement must end with `;`.
+- **match**: arms do not take a semicolon after the arm expression (e.g. `0 => 10,`). The whole `match` statement must end with `;` when used as a statement.
 
 ## Bindings and Control Flow
 

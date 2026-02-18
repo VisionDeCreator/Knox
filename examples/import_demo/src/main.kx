@@ -2,5 +2,5 @@
 import greet
 
 fn main() -> () {
-  print(greet::greet())
+  print(greet::greet());
 }

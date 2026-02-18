@@ -10,13 +10,15 @@ Define a function with `fn`, parameters with types, and a required return type:
 
 ```kx
 fn add(a: int, b: int) -> int {
-  return a + b
+  return a + b;
 }
 
 fn main() -> () {
-  print("Hi")
+  print("Hi");
 }
 ```
+
+Every statement must end with a semicolon (`;`): `let` bindings, assignments, expression statements, `return`, and function calls used as statements. Match arms do not take a semicolon after the arm expression; the whole `match` statement ends with `;` when used as a statement.
 
 Use `()` for the unit type when the function returns no value. Mark a function as importable from other modules with `pub`:
 
@@ -38,6 +40,15 @@ pub fn greet(name: string) -> string {
 - **Escape hatch:** `dynamic` (explicit; use for interop or when you need to defer typing).
 
 There is no `null` or `undefined`; use `Option<T>` and `Result<T, E>`.
+
+## Statements and semicolons
+
+Knox requires a semicolon at the end of every statement. No implicit semicolons.
+
+- **let:** `let x = expr;` — `let mut x = expr;` for mutable.
+- **Expression / call:** `print(x);` — any expression used as a statement ends with `;`.
+- **return:** `return expr;` or `return;` for unit.
+- **match as statement:** `match x { 0 => print("zero"), _ => print("other"), };` — arms do not have `;` after the arm expression; the whole match statement ends with `;`.
 
 ## Control flow
 

@@ -1,5 +1,5 @@
 // Module greet: a small helper that can be imported by main or other modules.
 
 pub fn greet() -> string {
-  return "Hello from greet in Knox!"
+  return "Hello from greet in Knox!";
 }
