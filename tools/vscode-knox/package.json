@@ -1,0 +1,32 @@
+{
+  "name": "knox-lang",
+  "displayName": "Knox Language",
+  "description": "Syntax highlighting and language support for Knox (.kx)",
+  "version": "0.1.0",
+  "publisher": "knox",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Programming Languages"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "knox",
+        "aliases": ["Knox", "knox"],
+        "extensions": [".kx"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "knox",
+        "scopeName": "source.knox",
+        "path": "./syntaxes/knox.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^2.22.0"
+  }
+}

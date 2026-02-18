@@ -1,0 +1,7 @@
+[package]
+name = "knox_runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Tiny runtime shims for WASI and web (print, etc.)"
+
+[dependencies]

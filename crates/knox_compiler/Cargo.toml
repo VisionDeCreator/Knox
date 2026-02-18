@@ -1,0 +1,9 @@
+[package]
+name = "knox_compiler"
+version = "0.1.0"
+edition = "2021"
+description = "Knox compiler: lexer, parser, type checker, pipeline"
+
+[dependencies]
+knox_syntax = { path = "../knox_syntax" }
+knox_codegen_wasm = { path = "../knox_codegen_wasm" }

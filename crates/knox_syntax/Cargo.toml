@@ -1,0 +1,7 @@
+[package]
+name = "knox_syntax"
+version = "0.1.0"
+edition = "2021"
+description = "AST nodes, tokens, spans, and diagnostics for Knox"
+
+[dependencies]

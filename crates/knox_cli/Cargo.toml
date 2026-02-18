@@ -1,0 +1,16 @@
+[package]
+name = "knox_cli"
+version = "0.1.0"
+edition = "2021"
+description = "Knox developer CLI"
+
+[[bin]]
+name = "knox"
+path = "src/main.rs"
+
+[dependencies]
+knox_compiler = { path = "../knox_compiler" }
+knox_pkg = { path = "../knox_pkg" }
+knox_syntax = { path = "../knox_syntax" }
+clap = { version = "4", features = ["derive"] }
+which = "6"

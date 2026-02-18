@@ -1,0 +1,9 @@
+[package]
+name = "knox_pkg"
+version = "0.1.0"
+edition = "2021"
+description = "Knox package manager: manifest, lockfile, local deps"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"

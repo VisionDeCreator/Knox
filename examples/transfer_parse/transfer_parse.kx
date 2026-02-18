@@ -1,0 +1,16 @@
+fn transfer(sender: Account, to: Address, amount: u64) -> Result<(), Error> {
+  let bal = sender.balance()
+  if bal < amount { return Err(Error::InsufficientFunds) }
+
+  sender.debit(amount)?
+  to.credit(amount)?
+  Ok(())
+}
+
+fn parseUser(input: string) -> Result<User, Error> {
+  let json: dynamic = JSON.parse(input)
+  match json {
+    { name: string, age: int } => Ok(User { name, age })
+    _ => Err(Error::BadInput)
+  }
+}

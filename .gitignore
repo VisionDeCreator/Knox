@@ -1,0 +1,10 @@
+/target/
+**/*.rs.bk
+Cargo.lock
+*.wasm
+dist/
+*.vsix
+.DS_Store
+*.log
+.env
+.env.local

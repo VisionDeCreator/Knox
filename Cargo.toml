@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+  "crates/knox_cli",
+  "crates/knox_compiler",
+  "crates/knox_syntax",
+  "crates/knox_codegen_wasm",
+  "crates/knox_pkg",
+  "crates/knox_runtime",
+]
