@@ -7,7 +7,6 @@ mod lower;
 mod modules;
 mod parser;
 
-use knox_codegen_wasm;
 use knox_syntax::diagnostics::{format_diagnostic, Diagnostic};
 use knox_syntax::span::FileId;
 use std::path::Path;
@@ -37,10 +36,7 @@ pub fn compile_file(path: &Path) -> Result<Vec<u8>, Vec<Diagnostic>> {
     })?;
     let file_id = FileId::new(0);
     let tokens = lexer::Lexer::new(&source, file_id).collect_tokens();
-    let root = match parser::parse(tokens, file_id) {
-        Ok(r) => r,
-        Err(diags) => return Err(diags),
-    };
+    let root = parser::parse(tokens, file_id)?;
 
     // Package root: nearest ancestor with knox.toml, or if under examples/<name>/src/ use that directory (monorepo convention).
     let package_root = path.ancestors().find(|p| p.join("knox.toml").exists());
@@ -57,7 +53,7 @@ pub fn compile_file(path: &Path) -> Result<Vec<u8>, Vec<Diagnostic>> {
     });
     let debug = std::env::var("KNOX_DEBUG").is_ok();
     if debug {
-        if let Some(ref pkg) = package_root {
+        if let Some(pkg) = &package_root {
             eprintln!("[KNOX_DEBUG] compiler package_root: {}", pkg.display());
             eprintln!(
                 "[KNOX_DEBUG] compiler module_root: {}",

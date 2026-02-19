@@ -157,6 +157,7 @@ pub fn lower_to_ir(
 type VarType = (String, String);
 
 /// Lower one function body. Tracks local indices: params 0..params.len(), then new locals for lets and temps.
+#[allow(clippy::too_many_arguments)]
 fn lower_function(
     name: &str,
     params: &[knox_syntax::ast::Param],
@@ -208,6 +209,7 @@ fn lower_function(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn lower_stmt(
     stmt: &Stmt,
     out: &mut Vec<IrInstr>,
@@ -290,6 +292,7 @@ fn lower_stmt(
 }
 
 /// Lower expr and ensure its value ends up in dest_local. May push instructions that leave value in dest.
+#[allow(clippy::too_many_arguments)]
 fn lower_expr_to_local(
     expr: &Expr,
     dest_local: u32,

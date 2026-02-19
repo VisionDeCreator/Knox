@@ -674,7 +674,7 @@ mod tests {
         let result = parse(tokens, FileId::new(0));
         assert!(result.is_err());
         let diags = result.unwrap_err();
-        assert!(diags.len() >= 1, "expected at least one diagnostic");
+        assert!(!diags.is_empty(), "expected at least one diagnostic");
         assert!(
             diags[0].message.contains("comma") && diags[0].message.contains("semicolon"),
             "expected diagnostic about commas not semicolons, got: {}",
@@ -717,11 +717,13 @@ fn main() -> () {
             Item::Fn(f) => {
                 assert_eq!(f.name, "main");
                 assert_eq!(f.body.stmts.len(), 3); // let x, let y, print
-                if let knox_syntax::ast::Stmt::Let { init, .. } = &f.body.stmts[1] {
-                    if let knox_syntax::ast::Expr::Match { arms, .. } = init {
-                        assert_eq!(arms.len(), 3);
-                        return;
-                    }
+                if let knox_syntax::ast::Stmt::Let {
+                    init: knox_syntax::ast::Expr::Match { arms, .. },
+                    ..
+                } = &f.body.stmts[1]
+                {
+                    assert_eq!(arms.len(), 3);
+                    return;
                 }
                 panic!("expected let y = match ... with 3 arms");
             }
