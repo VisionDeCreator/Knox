@@ -41,10 +41,8 @@ impl Parser {
     }
 
     fn error(&mut self, msg: impl Into<String>, span: Span) {
-        self.diags.push(Diagnostic::error(
-            msg,
-            Some(self.loc(span)),
-        ));
+        self.diags
+            .push(Diagnostic::error(msg, Some(self.loc(span))));
     }
 
     fn expect(&mut self, kind: TokenKind) -> Option<Span> {
@@ -74,7 +72,11 @@ impl Parser {
 
     fn parse_root(&mut self) -> Root {
         let mut items = Vec::new();
-        while self.peek().map(|k| !matches!(k, TokenKind::Eof)).unwrap_or(false) {
+        while self
+            .peek()
+            .map(|k| !matches!(k, TokenKind::Eof))
+            .unwrap_or(false)
+        {
             if let Some(item) = self.parse_item() {
                 items.push(item);
             }
@@ -96,10 +98,7 @@ impl Parser {
             TokenKind::Fn => self.parse_fn(vis, start)?,
             TokenKind::Import => self.parse_import(start)?,
             _ => {
-                self.error(
-                    "expected struct, fn, or import",
-                    t.span,
-                );
+                self.error("expected struct, fn, or import", t.span);
                 return None;
             }
         };
@@ -464,7 +463,10 @@ impl Parser {
                         self.advance();
                     }
                 }
-                let end = self.advance().map(|t| t.span.end).unwrap_or(base.span().end);
+                let end = self
+                    .advance()
+                    .map(|t| t.span.end)
+                    .unwrap_or(base.span().end);
                 base = Expr::Call {
                     span: Span::new(base.span().start, end),
                     receiver: Some(Box::new(base)),
@@ -484,7 +486,10 @@ impl Parser {
                         self.advance();
                     }
                 }
-                let end = self.advance().map(|t| t.span.end).unwrap_or(base.span().end);
+                let end = self
+                    .advance()
+                    .map(|t| t.span.end)
+                    .unwrap_or(base.span().end);
                 base = Expr::Call {
                     span: Span::new(base.span().start, end),
                     receiver: None,
@@ -724,4 +729,3 @@ fn main() -> () {
         }
     }
 }
-

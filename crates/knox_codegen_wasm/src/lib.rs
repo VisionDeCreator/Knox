@@ -29,7 +29,10 @@ pub fn emit_from_ir(program: &Program, debug: bool) -> Vec<u8> {
                 l.module,
                 l.struct_name,
                 l.total_size,
-                l.fields.iter().map(|(n, _, o)| (n.as_str(), o)).collect::<Vec<_>>(),
+                l.fields
+                    .iter()
+                    .map(|(n, _, o)| (n.as_str(), o))
+                    .collect::<Vec<_>>(),
             );
         }
     }
@@ -67,8 +70,16 @@ pub fn emit_from_ir(program: &Program, debug: bool) -> Vec<u8> {
     module.section(&types);
 
     let mut imports = ImportSection::new();
-    imports.import("wasi_snapshot_preview1", "fd_write", EntityType::Function(0));
-    imports.import("wasi_snapshot_preview1", "proc_exit", EntityType::Function(1));
+    imports.import(
+        "wasi_snapshot_preview1",
+        "fd_write",
+        EntityType::Function(0),
+    );
+    imports.import(
+        "wasi_snapshot_preview1",
+        "proc_exit",
+        EntityType::Function(1),
+    );
     module.section(&imports);
 
     let mut functions = FunctionSection::new();
@@ -116,7 +127,13 @@ pub fn emit_from_ir(program: &Program, debug: bool) -> Vec<u8> {
     let mut codes = CodeSection::new();
 
     let mut print_int_fn = Function::new([(1, ValType::I32)]);
-    emit_print_int_body(&mut print_int_fn, ITOA_OFF, IOV_OFF, NEWLINE_OFF, NWRITTEN_OFF);
+    emit_print_int_body(
+        &mut print_int_fn,
+        ITOA_OFF,
+        IOV_OFF,
+        NEWLINE_OFF,
+        NWRITTEN_OFF,
+    );
     codes.function(&print_int_fn);
 
     let mut print_str_fn = Function::new(vec![]);
@@ -301,8 +318,12 @@ fn emit_ir_function(
     debug: bool,
 ) {
     if debug {
-        eprintln!("[KNOX_DEBUG] codegen function: {} (params: {}, locals: {})",
-            f.name, f.params.len(), f.locals.len());
+        eprintln!(
+            "[KNOX_DEBUG] codegen function: {} (params: {}, locals: {})",
+            f.name,
+            f.params.len(),
+            f.locals.len()
+        );
     }
     let mut done = false;
     for instr in &f.body {
@@ -440,8 +461,16 @@ pub fn emit(ast: &Root) -> Vec<u8> {
     types.function([], []);
     module.section(&types);
     let mut imports = ImportSection::new();
-    imports.import("wasi_snapshot_preview1", "fd_write", EntityType::Function(0));
-    imports.import("wasi_snapshot_preview1", "proc_exit", EntityType::Function(1));
+    imports.import(
+        "wasi_snapshot_preview1",
+        "fd_write",
+        EntityType::Function(0),
+    );
+    imports.import(
+        "wasi_snapshot_preview1",
+        "proc_exit",
+        EntityType::Function(1),
+    );
     module.section(&imports);
     let mut functions = FunctionSection::new();
     functions.function(2);

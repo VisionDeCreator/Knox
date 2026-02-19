@@ -334,12 +334,13 @@ fn lower_expr_to_local(
             out.push(IrInstr::StructAlloc(lid));
             out.push(IrInstr::LocalSet(dest_local));
             for (fname, fexpr) in fields {
-                let (_, fty, offset) = layout
-                    .fields
-                    .iter()
-                    .find(|(n, _, _)| n == fname)
-                    .cloned()
-                    .ok_or_else(|| format!("field {} not in {}::{}", fname, key.0, key.1))?;
+                let (_, fty, offset) =
+                    layout
+                        .fields
+                        .iter()
+                        .find(|(n, _, _)| n == fname)
+                        .cloned()
+                        .ok_or_else(|| format!("field {} not in {}::{}", fname, key.0, key.1))?;
                 if matches!(fty, Type::String) {
                     let ptr_local = next_local(local_types);
                     let len_local = next_local(local_types);
@@ -351,9 +352,13 @@ fn lower_expr_to_local(
                             len_local,
                             data_id,
                         });
-                        out.push(IrInstr::StructSetStr(dest_local, offset, ptr_local, len_local));
+                        out.push(IrInstr::StructSetStr(
+                            dest_local, offset, ptr_local, len_local,
+                        ));
                     } else {
-                        return Err("string field in struct literal must be a string literal".to_string());
+                        return Err(
+                            "string field in struct literal must be a string literal".to_string()
+                        );
                     }
                 } else {
                     let val_local = next_local(local_types);

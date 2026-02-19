@@ -30,10 +30,13 @@ fn find_package_root(entry_path: &Path) -> Option<PathBuf> {
         .or_else(|| {
             let s = entry_path.to_string_lossy();
             if s.contains("examples") && s.contains("src") {
-                entry_path.ancestors().find(|a| {
-                    let src = a.join("src");
-                    entry_path.starts_with(&src)
-                }).map(PathBuf::from)
+                entry_path
+                    .ancestors()
+                    .find(|a| {
+                        let src = a.join("src");
+                        entry_path.starts_with(&src)
+                    })
+                    .map(PathBuf::from)
             } else {
                 None
             }
@@ -165,10 +168,22 @@ fn cmd_run(path: &Path) -> Result<(), String> {
     let monorepo_root = find_monorepo_root(&cwd);
     if debug {
         eprintln!("[KNOX_DEBUG] cwd: {}", cwd.display());
-        eprintln!("[KNOX_DEBUG] monorepo_root: {}", monorepo_root.as_deref().map(|p| p.display().to_string()).unwrap_or_else(|| "(none)".into()));
-        eprintln!("[KNOX_DEBUG] compile_path (entry): {}", compile_path.display());
+        eprintln!(
+            "[KNOX_DEBUG] monorepo_root: {}",
+            monorepo_root
+                .as_deref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "(none)".into())
+        );
+        eprintln!(
+            "[KNOX_DEBUG] compile_path (entry): {}",
+            compile_path.display()
+        );
         eprintln!("[KNOX_DEBUG] project_root: {}", project_root.display());
-        eprintln!("[KNOX_DEBUG] module_root: {}", project_root.join("src").display());
+        eprintln!(
+            "[KNOX_DEBUG] module_root: {}",
+            project_root.join("src").display()
+        );
     }
 
     let source = std::fs::read_to_string(&compile_path).map_err(|e| e.to_string())?;
@@ -287,11 +302,7 @@ mod tests {
         let tmp = std::env::temp_dir().join("knox_test_print_one");
         let _ = std::fs::create_dir(&tmp);
         let main_kx = tmp.join("main.kx");
-        std::fs::write(
-            &main_kx,
-            "fn main() -> () { print(1); }",
-        )
-        .expect("write main.kx");
+        std::fs::write(&main_kx, "fn main() -> () { print(1); }").expect("write main.kx");
         let wasm = knox_compiler::compile_file(&main_kx).expect("compile");
         let _ = std::fs::remove_dir_all(&tmp);
         assert!(!wasm.is_empty());
@@ -306,11 +317,8 @@ mod tests {
         let tmp = std::env::temp_dir().join("knox_test_hello");
         let _ = std::fs::create_dir(&tmp);
         let main_kx = tmp.join("main.kx");
-        std::fs::write(
-            &main_kx,
-            r#"fn main() -> () { print("Hello, World!"); }"#,
-        )
-        .expect("write main.kx");
+        std::fs::write(&main_kx, r#"fn main() -> () { print("Hello, World!"); }"#)
+            .expect("write main.kx");
         let wasm = knox_compiler::compile_file(&main_kx).expect("compile");
         let _ = std::fs::remove_dir_all(&tmp);
         assert!(!wasm.is_empty());

@@ -44,13 +44,13 @@ pub enum IrInstr {
     },
     LocalGet(u32),
     LocalSet(u32),
-    StructAlloc(u32), // layout_id
-    StructSet(u32, u32, u32), // ptr_local, field_offset, value_local
+    StructAlloc(u32),                 // layout_id
+    StructSet(u32, u32, u32),         // ptr_local, field_offset, value_local
     StructSetStr(u32, u32, u32, u32), // ptr_local, field_offset, ptr_val_local, len_val_local
-    StructGet(u32, u32, u32),   // ptr_local, field_offset, dest_local (int/bool)
+    StructGet(u32, u32, u32),         // ptr_local, field_offset, dest_local (int/bool)
     StructGetStr(u32, u32, u32, u32), // ptr_local, field_offset, ptr_dest, len_dest
-    Call(u32),                  // function index (result on stack; use LocalSet after)
-    CallStr(u32, u32, u32),     // function index, ptr_dest, len_dest (string return)
+    Call(u32),                        // function index (result on stack; use LocalSet after)
+    CallStr(u32, u32, u32),           // function index, ptr_dest, len_dest (string return)
     PrintInt(u32),
     PrintStr(u32, u32), // ptr_local, len_local
     Return,

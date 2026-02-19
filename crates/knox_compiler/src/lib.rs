@@ -24,10 +24,16 @@ pub fn print_diagnostics(source: &str, file_id: FileId, diags: &[Diagnostic]) {
 /// Returns either Wasm bytes or a list of diagnostics.
 pub fn compile_file(path: &Path) -> Result<Vec<u8>, Vec<Diagnostic>> {
     let path = path.canonicalize().map_err(|e| {
-        vec![Diagnostic::error(format!("failed to canonicalize: {}", e), None)]
+        vec![Diagnostic::error(
+            format!("failed to canonicalize: {}", e),
+            None,
+        )]
     })?;
     let source = std::fs::read_to_string(&path).map_err(|e| {
-        vec![Diagnostic::error(format!("failed to read file: {}", e), None)]
+        vec![Diagnostic::error(
+            format!("failed to read file: {}", e),
+            None,
+        )]
     })?;
     let file_id = FileId::new(0);
     let tokens = lexer::Lexer::new(&source, file_id).collect_tokens();
@@ -37,9 +43,7 @@ pub fn compile_file(path: &Path) -> Result<Vec<u8>, Vec<Diagnostic>> {
     };
 
     // Package root: nearest ancestor with knox.toml, or if under examples/<name>/src/ use that directory (monorepo convention).
-    let package_root = path
-        .ancestors()
-        .find(|p| p.join("knox.toml").exists());
+    let package_root = path.ancestors().find(|p| p.join("knox.toml").exists());
     let package_root = package_root.or_else(|| {
         let path_str = path.to_string_lossy();
         if path_str.contains("examples") && path_str.contains("src") {
@@ -55,7 +59,10 @@ pub fn compile_file(path: &Path) -> Result<Vec<u8>, Vec<Diagnostic>> {
     if debug {
         if let Some(ref pkg) = package_root {
             eprintln!("[KNOX_DEBUG] compiler package_root: {}", pkg.display());
-            eprintln!("[KNOX_DEBUG] compiler module_root: {}", pkg.join("src").display());
+            eprintln!(
+                "[KNOX_DEBUG] compiler module_root: {}",
+                pkg.join("src").display()
+            );
         } else {
             eprintln!("[KNOX_DEBUG] compiler package_root: (none)");
         }

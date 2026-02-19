@@ -67,7 +67,6 @@ pub fn collect_struct_layouts_and_accessors(
     (layouts, accessors)
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,13 +101,19 @@ mod tests {
                     span: span(),
                     name: "id".to_string(),
                     ty: Type::Int,
-                    attrs: FieldAttrs { get: true, set: false },
+                    attrs: FieldAttrs {
+                        get: true,
+                        set: false,
+                    },
                 },
                 StructField {
                     span: span(),
                     name: "price".to_string(),
                     ty: Type::Int,
-                    attrs: FieldAttrs { get: true, set: true },
+                    attrs: FieldAttrs {
+                        get: true,
+                        set: true,
+                    },
                 },
             ],
         };
@@ -124,7 +129,8 @@ mod tests {
         let root = Root {
             items: vec![Item::Struct(s.clone())],
         };
-        let (layouts, accessors) = collect_struct_layouts_and_accessors(&[("mymod".to_string(), root)]);
+        let (layouts, accessors) =
+            collect_struct_layouts_and_accessors(&[("mymod".to_string(), root)]);
         assert_eq!(layouts.len(), 1);
         assert_eq!(accessors.len(), 2);
         let id_acc = accessors.iter().find(|a| a.field_name == "id").unwrap();
