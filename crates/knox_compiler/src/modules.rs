@@ -1,13 +1,16 @@
 //! Module path resolution: internal (src/) and external (dependencies).
+//! Used when compiling packages with imports.
 
 use knox_pkg::Manifest;
 use std::path::{Path, PathBuf};
 
 /// Module path as segments, e.g. ["auth", "token"] for auth::token.
+#[allow(dead_code)]
 pub type ModPath = Vec<String>;
 
 /// Resolve an internal module path to a source file under package root.
 /// e.g. ["auth", "token"] -> src/auth/token.kx
+#[allow(dead_code)]
 pub fn resolve_internal(package_root: &Path, mod_path: &ModPath) -> Option<PathBuf> {
     if mod_path.is_empty() {
         return None;
@@ -27,6 +30,7 @@ pub fn resolve_internal(package_root: &Path, mod_path: &ModPath) -> Option<PathB
 /// Resolve external dependency: first segment is dep name, rest is path inside dep.
 /// e.g. ["http", "Client"] with dep http = { path = "../http" } -> ../http/src/lib.kx or ../http/src/Client.kx
 /// Convention: external package entry is src/lib.kx (module name = last segment of path or "lib").
+#[allow(dead_code)]
 pub fn resolve_external(
     package_root: &Path,
     manifest: &Manifest,
@@ -56,6 +60,7 @@ pub fn resolve_external(
 }
 
 /// Resolve import path: try internal first, then external.
+#[allow(dead_code)]
 pub fn resolve_import(
     package_root: &Path,
     manifest: Option<&Manifest>,
@@ -66,6 +71,7 @@ pub fn resolve_import(
 }
 
 /// Get module path from file path under src/. e.g. src/auth/token.kx -> ["auth", "token"].
+#[allow(dead_code)]
 pub fn file_to_mod_path(src_root: &Path, file_path: &Path) -> Option<ModPath> {
     let rel = file_path.strip_prefix(src_root).ok()?;
     let mut segs: Vec<String> = rel

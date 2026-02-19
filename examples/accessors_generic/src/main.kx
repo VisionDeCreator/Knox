@@ -1,0 +1,9 @@
+import product;
+
+fn main() -> () {
+  let mut p = product::Product { id: 1, price: 10 };
+  print(p.id());
+  print(p.price());
+  p.set_price(99);
+  print(p.price());
+}

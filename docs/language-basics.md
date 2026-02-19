@@ -43,7 +43,7 @@ There is no `null` or `undefined`; use `Option<T>` and `Result<T, E>`.
 
 ## Statements and semicolons
 
-Knox requires a semicolon at the end of every statement. No implicit semicolons.
+Knox requires a semicolon at the end of every statement. No implicit semicolons. **Struct fields** are the exception: they are separated by commas (see [Structs and accessors](structs-and-accessors.md)), not semicolons.
 
 - **let:** `let x = expr;` — `let mut x = expr;` for mutable.
 - **Expression / call:** `print(x);` — any expression used as a statement ends with `;`.

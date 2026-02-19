@@ -1,0 +1,9 @@
+import user;
+
+fn main() -> () {
+  let mut user = user::User { name: "John", age: 20 };
+  print(user.name());
+  print(user.age());
+  user.set_age(30);
+  print(user.age());
+}

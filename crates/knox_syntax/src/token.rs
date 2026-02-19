@@ -22,6 +22,7 @@ pub enum TokenKind {
     Struct,
     Import,
     Pub,
+    Export,
     As,
     Ok,
     Err,

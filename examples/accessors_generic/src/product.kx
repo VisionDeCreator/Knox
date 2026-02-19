@@ -1,0 +1,4 @@
+export struct Product {
+  id: int @pub(get),
+  price: int @pub(get, set),
+}

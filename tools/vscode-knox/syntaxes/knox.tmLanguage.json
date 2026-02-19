@@ -30,7 +30,7 @@
       "patterns": [
         {
           "name": "keyword.control.knox",
-          "match": "\\b(fn|let|mut|if|else|match|return|struct|import|pub|as)\\b"
+          "match": "\\b(fn|let|mut|if|else|match|return|struct|import|pub|export|as|impl)\\b"
         },
         {
           "name": "constant.language.knox",

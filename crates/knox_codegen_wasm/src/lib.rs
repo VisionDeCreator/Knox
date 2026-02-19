@@ -1,563 +1,525 @@
-//! Wasm codegen for Knox: emit Wasm module for main + print (WASI).
+//! Wasm emitter for Knox. Emits WebAssembly (wasm-wasi) from typed AST or from IR.
 
-use knox_syntax::ast::*;
-use std::collections::{HashMap, HashSet};
-use std::io::Write;
-use wasm_encoder::{
-    CodeSection, ConstExpr, DataSection, EntityType, ExportKind, ExportSection, Function,
-    FunctionSection, ImportSection, Instruction, MemorySection, MemoryType, Module, TypeSection,
-    ValType,
-};
+use knox_syntax::ast::Root;
+use knox_syntax::ir::{IrFunction, IrInstr, Program};
+use wasm_encoder::{BlockType, *};
 
-/// Result of building aux (i32)->(i32) helper functions: list of (name, type_idx, body) and fn_indices.
-type AuxFunctionsResult = Result<(Vec<(String, u32, Function)>, HashMap<String, u32>), String>;
+fn memarg(align: u32, offset: u64) -> MemArg {
+    MemArg {
+        offset,
+        align,
+        memory_index: 0,
+    }
+}
 
-/// Emit a Wasm module that exports _start (calls main) and main. Imports fd_write from WASI.
-/// Supports simple main (single print) and full main (lets, assignment, arithmetic, print).
-pub fn emit_wasm(root: &Root, out: &mut impl Write) -> Result<(), String> {
-    let main_fn = root
-        .items
-        .iter()
-        .find_map(|i| match i {
-            Item::Fn(f) if f.name == "main" => Some(f),
-            _ => None,
-        })
-        .ok_or("No main function")?;
+/// Emit Wasm from IR. Single path: no pattern matching; works for any valid Program.
+/// Uses fd_write for print (itoa for int, no NUL bytes). _start calls Knox main.
+pub fn emit_from_ir(program: &Program, debug: bool) -> Vec<u8> {
+    if debug {
+        eprintln!(
+            "[KNOX_DEBUG] codegen emit_from_ir: {} functions, {} struct layouts, {} string data",
+            program.functions.len(),
+            program.struct_layouts.len(),
+            program.string_data.len(),
+        );
+        for (i, l) in program.struct_layouts.iter().enumerate() {
+            eprintln!(
+                "[KNOX_DEBUG] struct layout {}: {}::{} size={} fields={:?}",
+                i,
+                l.module,
+                l.struct_name,
+                l.total_size,
+                l.fields.iter().map(|(n, _, o)| (n.as_str(), o)).collect::<Vec<_>>(),
+            );
+        }
+    }
 
-    let use_simple = is_simple_main(main_fn);
-    let (main_func, data_bytes, aux_functions, _fn_indices) = if use_simple {
-        let (string_bytes, print_callee) = get_main_print_string(root);
-        let len = string_bytes.len() as u32;
-        let data_offset = 16u32;
-        let main_via_helper = print_callee.is_some().then_some((1u32, len));
-        let main_f = encode_main_simple(0u32, main_via_helper);
-        let mut data = vec![0u8; 16];
-        data[8..12].copy_from_slice(&data_offset.to_le_bytes());
-        data[12..16].copy_from_slice(&len.to_le_bytes());
-        data.extend_from_slice(&string_bytes);
-        (main_f, data, vec![], HashMap::new())
-    } else {
-        let (aux_functions, fn_indices) = build_aux_functions(root)?;
-        let (main_f, data) = build_main_body(main_fn, &fn_indices)?;
-        (main_f, data, aux_functions, fn_indices)
-    };
+    // Use second page so itoa/iov don't overlap with any first-page use by host.
+    const RUNTIME_BASE: u32 = 8192;
+    const ITOA_OFF: u32 = RUNTIME_BASE;
+    const IOV_OFF: u32 = ITOA_OFF + 12;
+    const NEWLINE_OFF: u32 = IOV_OFF + 16;
+    const NWRITTEN_OFF: u32 = NEWLINE_OFF + 4;
+    const BUMP_INITIAL: u32 = NWRITTEN_OFF + 4;
+
+    let mut string_offsets: Vec<u32> = Vec::with_capacity(program.string_data.len());
+    let mut off = 0u32;
+    for s in &program.string_data {
+        string_offsets.push(off);
+        off += s.len() as u32;
+    }
+    let _data_len = off;
+
     let mut module = Module::new();
-    let type_fd_write = 0u32;
-    let type_main = 1u32;
-    let type_string_fn = 2u32;
 
     let mut types = TypeSection::new();
     types.function(
-        vec![ValType::I32, ValType::I32, ValType::I32, ValType::I32],
-        vec![ValType::I32],
+        [ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+        [ValType::I32],
     );
-    types.function(vec![], vec![]);
-    types.function(vec![], vec![ValType::I32]);
-    let has_aux = !aux_functions.is_empty();
-    if has_aux {
-        types.function(vec![ValType::I32], vec![ValType::I32]);
-    }
+    types.function([ValType::I32], []); // proc_exit
+    types.function([ValType::I32], []); // print_int
+    types.function([ValType::I32, ValType::I32], []); // print_str
+    types.function([], []); // () -> ()
+    types.function([ValType::I32], [ValType::I32]); // getter int
+    types.function([ValType::I32, ValType::I32], []); // setter
+    types.function([ValType::I32], [ValType::I32, ValType::I32]); // getter string
     module.section(&types);
 
-    let mut import = ImportSection::new();
-    import.import(
-        "wasi_snapshot_preview1",
-        "fd_write",
-        EntityType::Function(type_fd_write),
-    );
-    module.section(&import);
+    let mut imports = ImportSection::new();
+    imports.import("wasi_snapshot_preview1", "fd_write", EntityType::Function(0));
+    imports.import("wasi_snapshot_preview1", "proc_exit", EntityType::Function(1));
+    module.section(&imports);
 
-    let (_helper_idx, main_idx, start_idx) =
-        if use_simple && get_main_print_string(root).1.is_some() {
-            let mut funcs = FunctionSection::new();
-            funcs.function(type_string_fn);
-            funcs.function(type_main);
-            funcs.function(type_main);
-            module.section(&funcs);
-            (1u32, 2u32, 3u32)
-        } else {
-            let mut funcs = FunctionSection::new();
-            for (_, type_idx, _) in &aux_functions {
-                funcs.function(*type_idx);
-            }
-            funcs.function(type_main);
-            funcs.function(type_main);
-            module.section(&funcs);
-            let n_aux = aux_functions.len() as u32;
-            (0u32, n_aux + 1u32, n_aux + 2u32)
-        };
+    let mut functions = FunctionSection::new();
+    functions.function(2); // print_int
+    functions.function(3); // print_str
+    for f in &program.functions {
+        let ty = ir_func_type_index(f);
+        functions.function(ty);
+    }
+    functions.function(4); // _start
+    module.section(&functions);
 
-    let mut mem = MemorySection::new();
-    mem.memory(MemoryType {
+    let mut memories = MemorySection::new();
+    memories.memory(MemoryType {
         minimum: 1,
         maximum: None,
         memory64: false,
         shared: false,
     });
-    module.section(&mem);
+    module.section(&memories);
 
-    let mut export = ExportSection::new();
-    export.export("memory", ExportKind::Memory, 0);
-    export.export("_start", ExportKind::Func, start_idx);
-    module.section(&export);
-
-    let mut code = CodeSection::new();
-    if use_simple && get_main_print_string(root).1.is_some() {
-        let (_string_bytes, _) = get_main_print_string(root);
-        code.function(&encode_string_helper(16));
-    }
-    for (_, _, body) in &aux_functions {
-        code.function(body);
-    }
-    code.function(&main_func);
-    code.function(&encode_start(main_idx));
-    module.section(&code);
-
-    let mut data_sec = DataSection::new();
-    data_sec.active(0, &ConstExpr::i32_const(0), data_bytes);
-    module.section(&data_sec);
-
-    let bytes = module.finish();
-    out.write_all(&bytes).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-fn is_simple_main(f: &FnDecl) -> bool {
-    if f.body.stmts.len() != 1 {
-        return false;
-    }
-    if let Stmt::Expr(Expr::Call { callee, args, .. }) = &f.body.stmts[0] {
-        if callee != "print" || args.len() != 1 {
-            return false;
-        }
-        match &args[0] {
-            Expr::Literal(Literal::String(_), _) => true,
-            Expr::Call { args: a, .. } if a.is_empty() => true,
-            _ => false,
-        }
-    } else {
-        false
-    }
-}
-
-/// Build (i32)->(i32) helper functions for &mut int (copy-in/copy-out). Returns (name, type_idx, Function) and fn_indices for call emission.
-fn build_aux_functions(root: &Root) -> AuxFunctionsResult {
-    let type_i32_to_i32 = 3u32;
-    let mut out: Vec<(String, u32, Function)> = Vec::new();
-    let mut fn_indices: HashMap<String, u32> = HashMap::new();
-    for item in &root.items {
-        let Item::Fn(f) = item else { continue };
-        if f.name == "main" {
-            continue;
-        }
-        // MVP: single param &mut int, returns ()
-        if f.params.len() != 1 {
-            continue;
-        }
-        let p = &f.params[0];
-        let Type::Ref(inner, is_mut) = &p.ty else {
-            continue;
-        };
-        if !is_mut || !matches!(inner.as_ref(), Type::Int) {
-            continue;
-        }
-        let body = build_aux_function_body(f)?;
-        let idx = 1u32 + out.len() as u32;
-        fn_indices.insert(f.name.clone(), idx);
-        out.push((f.name.clone(), type_i32_to_i32, body));
-    }
-    Ok((out, fn_indices))
-}
-
-fn build_aux_function_body(f: &FnDecl) -> Result<Function, String> {
-    let mut local_indices: HashMap<String, u32> = HashMap::new();
-    for (i, p) in f.params.iter().enumerate() {
-        local_indices.insert(p.name.clone(), i as u32);
-    }
-    let num_locals = local_indices.len() as u32;
-    let ref_params: HashSet<String> = f
-        .params
-        .iter()
-        .filter(|p| matches!(&p.ty, Type::Ref(_, _)))
-        .map(|p| p.name.clone())
-        .collect();
-    let mut instructions: Vec<Instruction> = Vec::new();
-    let mut data = vec![0u8; 16];
-    let mut data_len = 16u32;
-    for stmt in &f.body.stmts {
-        emit_stmt(
-            stmt,
-            &local_indices,
-            num_locals,
-            &mut instructions,
-            &mut data,
-            &mut data_len,
-            &ref_params,
-            &HashMap::new(),
-        )?;
-    }
-    let mut func = Function::new(vec![(num_locals, ValType::I32)]);
-    for inst in &instructions {
-        func.instruction(inst);
-    }
-    func.instruction(&Instruction::End);
-    Ok(func)
-}
-
-fn build_main_body(
-    main_fn: &FnDecl,
-    fn_indices: &HashMap<String, u32>,
-) -> Result<(Function, Vec<u8>), String> {
-    let mut local_indices: HashMap<String, u32> = HashMap::new();
-    let mut next_local = 0u32;
-    for stmt in &main_fn.body.stmts {
-        if let Stmt::Let { name, .. } = stmt {
-            if !local_indices.contains_key(name) {
-                local_indices.insert(name.clone(), next_local);
-                next_local += 1;
-            }
-        }
-    }
-    let num_locals = next_local;
-    let mut instructions: Vec<Instruction> = Vec::new();
-    let mut data = vec![0u8; 16];
-    let mut data_len = 16u32;
-
-    let ref_params = HashSet::new();
-    for stmt in &main_fn.body.stmts {
-        emit_stmt(
-            stmt,
-            &local_indices,
-            num_locals,
-            &mut instructions,
-            &mut data,
-            &mut data_len,
-            &ref_params,
-            fn_indices,
-        )?;
-    }
-
-    let mut f = Function::new(vec![(num_locals, ValType::I32)]);
-    for inst in &instructions {
-        f.instruction(inst);
-    }
-    f.instruction(&Instruction::End);
-    Ok((f, data))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn emit_stmt(
-    stmt: &Stmt,
-    local_indices: &HashMap<String, u32>,
-    num_locals: u32,
-    out: &mut Vec<Instruction>,
-    data: &mut Vec<u8>,
-    data_len: &mut u32,
-    ref_params: &HashSet<String>,
-    fn_indices: &HashMap<String, u32>,
-) -> Result<(), String> {
-    match stmt {
-        Stmt::Let { name, init, .. } => {
-            emit_expr(init, local_indices, num_locals, out)?;
-            let idx = *local_indices.get(name).ok_or("unknown let")?;
-            out.push(Instruction::LocalSet(idx));
-        }
-        Stmt::Assign { name, expr, .. } => {
-            emit_expr(expr, local_indices, num_locals, out)?;
-            let idx = *local_indices.get(name).ok_or("unknown variable")?;
-            out.push(Instruction::LocalSet(idx));
-        }
-        Stmt::AssignDeref { name, expr, .. } => {
-            emit_expr(expr, local_indices, num_locals, out)?;
-            if ref_params.contains(name) {
-                out.push(Instruction::Return);
-            } else {
-                let idx = *local_indices
-                    .get(name)
-                    .ok_or("unknown variable for *x = ...")?;
-                out.push(Instruction::LocalSet(idx));
-            }
-        }
-        Stmt::Expr(expr) => {
-            if let Expr::Call { callee, args, .. } = expr {
-                if callee == "print" && args.len() == 1 {
-                    emit_print(&args[0], local_indices, num_locals, out, data, data_len)?;
-                    return Ok(());
-                }
-                if let Some(&fn_idx) = fn_indices.get(callee) {
-                    for a in args {
-                        emit_expr(a, local_indices, num_locals, out)?;
-                    }
-                    out.push(Instruction::Call(fn_idx));
-                    for a in args {
-                        if let Expr::Ref {
-                            is_mut: true,
-                            target,
-                            ..
-                        } = a
-                        {
-                            let idx = *local_indices
-                                .get(target)
-                                .ok_or(format!("Unknown variable: {}", target))?;
-                            out.push(Instruction::LocalSet(idx));
-                        }
-                    }
-                    return Ok(());
-                }
-            }
-            emit_expr(expr, local_indices, num_locals, out)?;
-            out.push(Instruction::Drop);
-        }
-        Stmt::Return(_, _) => {}
-    }
-    Ok(())
-}
-
-fn emit_print(
-    arg: &Expr,
-    _local_indices: &HashMap<String, u32>,
-    _num_locals: u32,
-    out: &mut Vec<Instruction>,
-    data: &mut Vec<u8>,
-    data_len: &mut u32,
-) -> Result<(), String> {
-    match arg {
-        Expr::Literal(Literal::String(s), _) => {
-            let mut bytes = s.clone().into_bytes();
-            bytes.push(b'\n');
-            let len = bytes.len() as u32;
-            let offset = *data_len;
-            data.resize(*data_len as usize + bytes.len(), 0);
-            data[offset as usize..].copy_from_slice(&bytes);
-            data[8..12].copy_from_slice(&offset.to_le_bytes());
-            data[12..16].copy_from_slice(&len.to_le_bytes());
-            *data_len += len;
-        }
-        Expr::Literal(Literal::Int(n), _) => {
-            let s = format!("{}\n", n);
-            let bytes = s.into_bytes();
-            let len = bytes.len() as u32;
-            let offset = *data_len;
-            data.resize(*data_len as usize + bytes.len(), 0);
-            data[offset as usize..].copy_from_slice(&bytes);
-            data[8..12].copy_from_slice(&offset.to_le_bytes());
-            data[12..16].copy_from_slice(&len.to_le_bytes());
-            *data_len += len;
-        }
-        _ => {
-            return Err(
-                "print: only string or int literal supported in full main for now".to_string(),
-            )
-        }
-    }
-    out.push(Instruction::I32Const(1));
-    out.push(Instruction::I32Const(8));
-    out.push(Instruction::I32Const(1));
-    out.push(Instruction::I32Const(0));
-    out.push(Instruction::Call(0));
-    out.push(Instruction::Drop);
-    Ok(())
-}
-
-fn emit_expr(
-    expr: &Expr,
-    local_indices: &HashMap<String, u32>,
-    _num_locals: u32,
-    out: &mut Vec<Instruction>,
-) -> Result<(), String> {
-    match expr {
-        Expr::Literal(Literal::Int(n), _) => {
-            out.push(Instruction::I32Const(*n as i32));
-        }
-        Expr::Literal(Literal::Bool(b), _) => {
-            out.push(Instruction::I32Const(if *b { 1 } else { 0 }));
-        }
-        Expr::Literal(_, _) => return Err("Only int/bool in expr for codegen".into()),
-        Expr::Ident(name, _) => {
-            let idx = *local_indices
-                .get(name)
-                .ok_or(format!("Unknown variable: {}", name))?;
-            out.push(Instruction::LocalGet(idx));
-        }
-        Expr::BinaryOp {
-            op, left, right, ..
-        } => {
-            emit_expr(left, local_indices, _num_locals, out)?;
-            emit_expr(right, local_indices, _num_locals, out)?;
-            match op {
-                BinOp::Add => out.push(Instruction::I32Add),
-                BinOp::Sub => out.push(Instruction::I32Sub),
-                BinOp::Mul => out.push(Instruction::I32Mul),
-                BinOp::Div => out.push(Instruction::I32DivS),
-                BinOp::Rem => out.push(Instruction::I32RemS),
-                BinOp::Eq => out.push(Instruction::I32Eq),
-                BinOp::Ne => out.push(Instruction::I32Ne),
-                BinOp::Lt => out.push(Instruction::I32LtS),
-                BinOp::Le => out.push(Instruction::I32LeS),
-                BinOp::Gt => out.push(Instruction::I32GtS),
-                BinOp::Ge => out.push(Instruction::I32GeS),
-                BinOp::And => out.push(Instruction::I32And),
-                BinOp::Or => out.push(Instruction::I32Or),
-            }
-        }
-        Expr::UnaryOp { op, expr, .. } => match op {
-            UnOp::Neg => {
-                out.push(Instruction::I32Const(0));
-                emit_expr(expr, local_indices, _num_locals, out)?;
-                out.push(Instruction::I32Sub);
-            }
-            UnOp::Not => {
-                emit_expr(expr, local_indices, _num_locals, out)?;
-                out.push(Instruction::I32Eqz);
-            }
+    let mut globals = wasm_encoder::GlobalSection::new();
+    globals.global(
+        wasm_encoder::GlobalType {
+            val_type: ValType::I32,
+            mutable: true,
         },
-        Expr::Match {
-            scrutinee, arms, ..
-        } => {
-            emit_expr(scrutinee, local_indices, _num_locals, out)?;
-            for arm in arms {
-                if let MatchPattern::Literal(Literal::Int(n), _) = arm.pattern {
-                    out.push(Instruction::I32Const(n as i32));
-                    out.push(Instruction::I32Eq);
-                    out.push(Instruction::Drop);
-                    emit_expr(&arm.body, local_indices, _num_locals, out)?;
-                    return Ok(());
-                }
-            }
-            if let Some(arm) = arms.last() {
-                if matches!(arm.pattern, MatchPattern::Wildcard(_)) {
-                    out.push(Instruction::Drop);
-                    emit_expr(&arm.body, local_indices, _num_locals, out)?;
-                    return Ok(());
-                }
-            }
-            return Err("Match: only literal and _ in MVP codegen".into());
-        }
-        Expr::Call { callee, args, .. } => {
-            if *callee != "print" {
-                for a in args {
-                    emit_expr(a, local_indices, _num_locals, out)?;
-                }
-                return Err(
-                    "Function calls other than print() not yet implemented in codegen".to_string(),
-                );
-            }
-            return Err("print() should be handled in emit_stmt".to_string());
-        }
-        Expr::Ref { target, .. } => {
-            let idx = *local_indices
-                .get(target)
-                .ok_or(format!("Unknown variable: {}", target))?;
-            out.push(Instruction::LocalGet(idx));
-        }
-        Expr::Deref { expr, .. } => {
-            emit_expr(expr, local_indices, _num_locals, out)?;
-        }
-        _ => return Err(format!("Unsupported expr: {:?}", expr)),
+        &ConstExpr::i32_const(BUMP_INITIAL as i32),
+    );
+    module.section(&globals);
+
+    let main_idx = 4u32;
+    let start_idx = 4 + program.functions.len() as u32;
+
+    let mut exports = ExportSection::new();
+    exports.export("memory", ExportKind::Memory, 0);
+    exports.export("_start", ExportKind::Func, start_idx);
+    module.section(&exports);
+
+    // Start section so wasmtime run invokes _start at instantiation (WASI stdio connected).
+    module.section(&StartSection {
+        function_index: start_idx,
+    });
+
+    let mut codes = CodeSection::new();
+
+    let mut print_int_fn = Function::new([(1, ValType::I32)]);
+    emit_print_int_body(&mut print_int_fn, ITOA_OFF, IOV_OFF, NEWLINE_OFF, NWRITTEN_OFF);
+    codes.function(&print_int_fn);
+
+    let mut print_str_fn = Function::new(vec![]);
+    emit_print_str_body(&mut print_str_fn, IOV_OFF, NEWLINE_OFF, NWRITTEN_OFF);
+    codes.function(&print_str_fn);
+
+    for (ir_idx, f) in program.functions.iter().enumerate() {
+        let mut wf = Function::new(
+            f.locals
+                .iter()
+                .map(|_| (1u32, ValType::I32))
+                .collect::<Vec<_>>(),
+        );
+        emit_ir_function(
+            f,
+            program,
+            &string_offsets,
+            main_idx + ir_idx as u32,
+            &mut wf,
+            debug,
+        );
+        codes.function(&wf);
     }
-    Ok(())
+
+    let mut start_fn = Function::new(vec![]);
+    start_fn.instruction(&Instruction::I32Const(NEWLINE_OFF as i32));
+    start_fn.instruction(&Instruction::I32Const(10));
+    start_fn.instruction(&Instruction::I32Store8(memarg(0, 0)));
+    start_fn.instruction(&Instruction::Call(main_idx));
+    start_fn.instruction(&Instruction::I32Const(0));
+    start_fn.instruction(&Instruction::Call(1));
+    start_fn.instruction(&Instruction::End);
+    codes.function(&start_fn);
+
+    module.section(&codes);
+
+    let mut data_bytes = Vec::new();
+    for s in &program.string_data {
+        data_bytes.extend_from_slice(s.as_bytes());
+    }
+    if !data_bytes.is_empty() {
+        let mut data = DataSection::new();
+        data.active(0, &ConstExpr::i32_const(0), data_bytes);
+        module.section(&data);
+    }
+
+    module.finish()
 }
 
-/// Returns (string bytes including newline, Some(callee) if string came from print(callee())).
-fn get_main_print_string(root: &Root) -> (Vec<u8>, Option<String>) {
-    for item in &root.items {
-        let knox_syntax::ast::Item::Fn(f) = item else {
-            continue;
-        };
-        if f.name != "main" {
-            continue;
+fn ir_func_type_index(f: &IrFunction) -> u32 {
+    let p = &f.params;
+    let has_return_int = f.body.iter().any(|i| matches!(i, IrInstr::ReturnInt(_)));
+    let has_return_str = f.body.iter().any(|i| matches!(i, IrInstr::ReturnStr(_, _)));
+    if p.is_empty() {
+        4
+    } else if p.len() == 1 && has_return_str {
+        7
+    } else if p.len() == 1 && has_return_int {
+        5
+    } else if p.len() == 2 {
+        6
+    } else {
+        4
+    }
+}
+
+fn emit_print_int_body(
+    f: &mut wasm_encoder::Function,
+    itoa_off: u32,
+    iov_off: u32,
+    newline_off: u32,
+    nwritten_off: u32,
+) {
+    let d0 = 48i32;
+    // Store order: address then value (Wasm spec pops value then address).
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Const(10));
+    f.instruction(&Instruction::I32RemS);
+    f.instruction(&Instruction::I32Const(d0));
+    f.instruction(&Instruction::I32Add);
+    f.instruction(&Instruction::LocalSet(1));
+    f.instruction(&Instruction::I32Const(itoa_off as i32 + 1));
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::I32Store8(memarg(0, 0)));
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Const(10));
+    f.instruction(&Instruction::I32DivS);
+    f.instruction(&Instruction::I32Const(d0));
+    f.instruction(&Instruction::I32Add);
+    f.instruction(&Instruction::LocalSet(1));
+    f.instruction(&Instruction::I32Const(itoa_off as i32));
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::I32Store8(memarg(0, 0)));
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Const(10));
+    f.instruction(&Instruction::I32LtS);
+    f.instruction(&Instruction::If(BlockType::Empty));
+    f.instruction(&Instruction::I32Const((itoa_off + 1) as i32));
+    f.instruction(&Instruction::I32Load8U(memarg(0, 0)));
+    f.instruction(&Instruction::LocalSet(1));
+    f.instruction(&Instruction::I32Const(itoa_off as i32));
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::I32Store8(memarg(0, 0)));
+    f.instruction(&Instruction::End);
+    f.instruction(&Instruction::I32Const(1));
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Const(10));
+    f.instruction(&Instruction::I32GeS);
+    f.instruction(&Instruction::I32Add);
+    f.instruction(&Instruction::LocalTee(1));
+    f.instruction(&Instruction::Drop);
+    // First fd_write: digits only (1 iov)
+    f.instruction(&Instruction::I32Const(iov_off as i32));
+    f.instruction(&Instruction::I32Const(itoa_off as i32));
+    f.instruction(&Instruction::I32Store(memarg(2, 0)));
+    f.instruction(&Instruction::I32Const(iov_off as i32 + 4));
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::I32Store(memarg(2, 0)));
+    f.instruction(&Instruction::I32Const(1)); // fd 1 (stdout)
+    f.instruction(&Instruction::I32Const(iov_off as i32));
+    f.instruction(&Instruction::I32Const(1));
+    f.instruction(&Instruction::I32Const(nwritten_off as i32));
+    f.instruction(&Instruction::Call(0));
+    f.instruction(&Instruction::Drop);
+    // Second fd_write: newline only (1 iov)
+    f.instruction(&Instruction::I32Const(iov_off as i32));
+    f.instruction(&Instruction::I32Const(newline_off as i32));
+    f.instruction(&Instruction::I32Store(memarg(2, 0)));
+    f.instruction(&Instruction::I32Const(iov_off as i32 + 4));
+    f.instruction(&Instruction::I32Const(1));
+    f.instruction(&Instruction::I32Store(memarg(2, 0)));
+    f.instruction(&Instruction::I32Const(1)); // fd 1 (stdout)
+    f.instruction(&Instruction::I32Const(iov_off as i32));
+    f.instruction(&Instruction::I32Const(1));
+    f.instruction(&Instruction::I32Const(nwritten_off as i32));
+    f.instruction(&Instruction::Call(0));
+    f.instruction(&Instruction::Drop);
+    f.instruction(&Instruction::End);
+}
+
+fn emit_print_str_body(
+    f: &mut wasm_encoder::Function,
+    iov_off: u32,
+    newline_off: u32,
+    nwritten_off: u32,
+) {
+    // First fd_write: string only (1 iov)
+    f.instruction(&Instruction::I32Const(iov_off as i32));
+    f.instruction(&Instruction::LocalGet(0));
+    f.instruction(&Instruction::I32Store(memarg(2, 0)));
+    f.instruction(&Instruction::I32Const(iov_off as i32 + 4));
+    f.instruction(&Instruction::LocalGet(1));
+    f.instruction(&Instruction::I32Store(memarg(2, 0)));
+    f.instruction(&Instruction::I32Const(1)); // fd 1 (stdout)
+    f.instruction(&Instruction::I32Const(iov_off as i32));
+    f.instruction(&Instruction::I32Const(1));
+    f.instruction(&Instruction::I32Const(nwritten_off as i32));
+    f.instruction(&Instruction::Call(0));
+    f.instruction(&Instruction::Drop);
+    // Second fd_write: newline only (1 iov)
+    f.instruction(&Instruction::I32Const(iov_off as i32));
+    f.instruction(&Instruction::I32Const(newline_off as i32));
+    f.instruction(&Instruction::I32Store(memarg(2, 0)));
+    f.instruction(&Instruction::I32Const(iov_off as i32 + 4));
+    f.instruction(&Instruction::I32Const(1));
+    f.instruction(&Instruction::I32Store(memarg(2, 0)));
+    f.instruction(&Instruction::I32Const(1)); // fd 1 (stdout)
+    f.instruction(&Instruction::I32Const(iov_off as i32));
+    f.instruction(&Instruction::I32Const(1));
+    f.instruction(&Instruction::I32Const(nwritten_off as i32));
+    f.instruction(&Instruction::Call(0));
+    f.instruction(&Instruction::Drop);
+    f.instruction(&Instruction::End);
+}
+
+fn emit_ir_function(
+    f: &IrFunction,
+    program: &Program,
+    string_offsets: &[u32],
+    func_base: u32,
+    wf: &mut wasm_encoder::Function,
+    debug: bool,
+) {
+    if debug {
+        eprintln!("[KNOX_DEBUG] codegen function: {} (params: {}, locals: {})",
+            f.name, f.params.len(), f.locals.len());
+    }
+    let mut done = false;
+    for instr in &f.body {
+        if done {
+            break;
         }
-        for stmt in &f.body.stmts {
-            let knox_syntax::ast::Stmt::Expr(knox_syntax::ast::Expr::Call { callee, args, .. }) =
-                stmt
-            else {
-                continue;
-            };
-            if *callee != "print" || args.len() != 1 {
-                continue;
+        match instr {
+            IrInstr::ConstInt(v) => {
+                wf.instruction(&Instruction::I32Const(*v as i32));
             }
-            match &args[0] {
-                knox_syntax::ast::Expr::Literal(knox_syntax::ast::Literal::String(s), _) => {
-                    let mut v = s.clone().into_bytes();
-                    v.push(b'\n');
-                    return (v, None);
-                }
-                knox_syntax::ast::Expr::Call {
-                    callee: qcallee,
-                    args: qargs,
-                    ..
-                } if qargs.is_empty() => {
-                    if let Some(s) = get_return_string_literal(root, qcallee) {
-                        let mut v = s.into_bytes();
-                        v.push(b'\n');
-                        return (v, Some(qcallee.clone()));
+            IrInstr::ConstString {
+                ptr_local,
+                len_local,
+                data_id,
+            } => {
+                let ptr = string_offsets.get(*data_id as usize).copied().unwrap_or(0);
+                let len = program
+                    .string_data
+                    .get(*data_id as usize)
+                    .map(|s| s.len() as i32)
+                    .unwrap_or(0);
+                wf.instruction(&Instruction::I32Const(ptr as i32));
+                wf.instruction(&Instruction::LocalSet(*ptr_local));
+                wf.instruction(&Instruction::I32Const(len));
+                wf.instruction(&Instruction::LocalSet(*len_local));
+            }
+            IrInstr::LocalGet(i) => {
+                wf.instruction(&Instruction::LocalGet(*i));
+            }
+            IrInstr::LocalSet(i) => {
+                wf.instruction(&Instruction::LocalSet(*i));
+            }
+            IrInstr::StructAlloc(layout_id) => {
+                let size = program
+                    .struct_layouts
+                    .get(*layout_id as usize)
+                    .map(|l| l.total_size)
+                    .unwrap_or(0);
+                let size_aligned = (size + 3) & !3;
+                wf.instruction(&Instruction::GlobalGet(0));
+                wf.instruction(&Instruction::GlobalGet(0));
+                wf.instruction(&Instruction::I32Const(size_aligned as i32));
+                wf.instruction(&Instruction::I32Add);
+                wf.instruction(&Instruction::GlobalSet(0));
+            }
+            IrInstr::StructSet(ptr_local, field_offset, value_local) => {
+                wf.instruction(&Instruction::LocalGet(*ptr_local));
+                wf.instruction(&Instruction::I32Const(*field_offset as i32));
+                wf.instruction(&Instruction::I32Add);
+                wf.instruction(&Instruction::LocalGet(*value_local));
+                wf.instruction(&Instruction::I32Store(memarg(2, 0)));
+            }
+            IrInstr::StructSetStr(ptr_local, field_offset, ptr_val_local, len_val_local) => {
+                wf.instruction(&Instruction::LocalGet(*ptr_local));
+                wf.instruction(&Instruction::I32Const(*field_offset as i32));
+                wf.instruction(&Instruction::I32Add);
+                wf.instruction(&Instruction::LocalGet(*ptr_val_local));
+                wf.instruction(&Instruction::I32Store(memarg(2, 0)));
+                wf.instruction(&Instruction::LocalGet(*ptr_local));
+                wf.instruction(&Instruction::I32Const(*field_offset as i32 + 4));
+                wf.instruction(&Instruction::I32Add);
+                wf.instruction(&Instruction::LocalGet(*len_val_local));
+                wf.instruction(&Instruction::I32Store(memarg(2, 0)));
+            }
+            IrInstr::StructGet(ptr_local, field_offset, dest_local) => {
+                wf.instruction(&Instruction::LocalGet(*ptr_local));
+                wf.instruction(&Instruction::I32Const(*field_offset as i32));
+                wf.instruction(&Instruction::I32Add);
+                wf.instruction(&Instruction::I32Load(memarg(2, 0)));
+                wf.instruction(&Instruction::LocalSet(*dest_local));
+            }
+            IrInstr::StructGetStr(ptr_local, field_offset, ptr_dest, len_dest) => {
+                wf.instruction(&Instruction::LocalGet(*ptr_local));
+                wf.instruction(&Instruction::I32Const(*field_offset as i32));
+                wf.instruction(&Instruction::I32Add);
+                wf.instruction(&Instruction::I32Load(memarg(2, 0)));
+                wf.instruction(&Instruction::LocalSet(*ptr_dest));
+                wf.instruction(&Instruction::LocalGet(*ptr_local));
+                wf.instruction(&Instruction::I32Const(*field_offset as i32 + 4));
+                wf.instruction(&Instruction::I32Add);
+                wf.instruction(&Instruction::I32Load(memarg(2, 0)));
+                wf.instruction(&Instruction::LocalSet(*len_dest));
+            }
+            IrInstr::Call(ir_idx) => {
+                wf.instruction(&Instruction::Call(func_base + ir_idx));
+            }
+            IrInstr::CallStr(ir_idx, ptr_dest, len_dest) => {
+                wf.instruction(&Instruction::Call(func_base + ir_idx));
+                wf.instruction(&Instruction::LocalSet(*len_dest));
+                wf.instruction(&Instruction::LocalSet(*ptr_dest));
+            }
+            IrInstr::PrintInt(local) => {
+                wf.instruction(&Instruction::LocalGet(*local));
+                wf.instruction(&Instruction::Call(2));
+            }
+            IrInstr::PrintStr(ptr_local, len_local) => {
+                wf.instruction(&Instruction::LocalGet(*ptr_local));
+                wf.instruction(&Instruction::LocalGet(*len_local));
+                wf.instruction(&Instruction::Call(3));
+            }
+            IrInstr::Return => {
+                wf.instruction(&Instruction::End);
+                done = true;
+            }
+            IrInstr::ReturnInt(local) => {
+                wf.instruction(&Instruction::LocalGet(*local));
+                wf.instruction(&Instruction::End);
+                done = true;
+            }
+            IrInstr::ReturnStr(ptr_local, len_local) => {
+                wf.instruction(&Instruction::LocalGet(*ptr_local));
+                wf.instruction(&Instruction::LocalGet(*len_local));
+                wf.instruction(&Instruction::End);
+                done = true;
+            }
+        }
+    }
+    if !done {
+        wf.instruction(&Instruction::End);
+    }
+}
+
+/// (Legacy) Emit a single module's AST to Wasm bytes (wasm-wasi). Only supports main() with a single print(string).
+/// Prefer the IR pipeline: lower_to_ir + emit_from_ir.
+pub fn emit(ast: &Root) -> Vec<u8> {
+    let message = extract_print_message(ast);
+    let message = message.as_bytes();
+    let mut module = Module::new();
+    let mut types = TypeSection::new();
+    types.function(
+        [ValType::I32, ValType::I32, ValType::I32, ValType::I32],
+        [ValType::I32],
+    );
+    types.function([ValType::I32], []);
+    types.function([], []);
+    module.section(&types);
+    let mut imports = ImportSection::new();
+    imports.import("wasi_snapshot_preview1", "fd_write", EntityType::Function(0));
+    imports.import("wasi_snapshot_preview1", "proc_exit", EntityType::Function(1));
+    module.section(&imports);
+    let mut functions = FunctionSection::new();
+    functions.function(2);
+    functions.function(2);
+    module.section(&functions);
+    let mut memories = MemorySection::new();
+    memories.memory(MemoryType {
+        minimum: 1,
+        maximum: None,
+        memory64: false,
+        shared: false,
+    });
+    module.section(&memories);
+    let mut exports = ExportSection::new();
+    exports.export("memory", ExportKind::Memory, 0);
+    exports.export("_start", ExportKind::Func, 3);
+    module.section(&exports);
+    let data_start = 8u32;
+    let nwritten_ptr = (data_start + message.len() as u32 + 3) & !3;
+    let mut codes = CodeSection::new();
+    let mut main_fn = Function::new(vec![]);
+    main_fn.instruction(&Instruction::I32Const(0));
+    main_fn.instruction(&Instruction::I32Const(8));
+    main_fn.instruction(&Instruction::I32Store(memarg(2, 0)));
+    main_fn.instruction(&Instruction::I32Const(4));
+    main_fn.instruction(&Instruction::I32Const(message.len() as i32));
+    main_fn.instruction(&Instruction::I32Store(memarg(2, 0)));
+    for (i, &b) in message.iter().enumerate() {
+        main_fn.instruction(&Instruction::I32Const(8 + i as i32));
+        main_fn.instruction(&Instruction::I32Const(b as i32));
+        main_fn.instruction(&Instruction::I32Store8(memarg(0, 0)));
+    }
+    main_fn.instruction(&Instruction::I32Const(1));
+    main_fn.instruction(&Instruction::I32Const(0));
+    main_fn.instruction(&Instruction::I32Const(1));
+    main_fn.instruction(&Instruction::I32Const(nwritten_ptr as i32));
+    main_fn.instruction(&Instruction::Call(0));
+    main_fn.instruction(&Instruction::Drop);
+    main_fn.instruction(&Instruction::End);
+    codes.function(&main_fn);
+    let mut start_fn = Function::new(vec![]);
+    start_fn.instruction(&Instruction::Call(2));
+    start_fn.instruction(&Instruction::I32Const(0));
+    start_fn.instruction(&Instruction::Call(1));
+    start_fn.instruction(&Instruction::End);
+    codes.function(&start_fn);
+    module.section(&codes);
+    module.finish()
+}
+
+fn extract_print_message(ast: &Root) -> String {
+    for item in &ast.items {
+        if let knox_syntax::ast::Item::Fn(f) = item {
+            if f.name == "main" {
+                return extract_first_print_string(&f.body);
+            }
+        }
+    }
+    "".to_string()
+}
+
+fn extract_first_print_string(block: &knox_syntax::ast::Block) -> String {
+    for stmt in &block.stmts {
+        if let knox_syntax::ast::Stmt::Expr { expr, .. } = stmt {
+            if let knox_syntax::ast::Expr::Call {
+                name,
+                args,
+                receiver: None,
+                ..
+            } = expr
+            {
+                if name == "print" && args.len() == 1 {
+                    if let knox_syntax::ast::Expr::StringLiteral { value, .. } = &args[0] {
+                        return value.clone();
                     }
                 }
-                _ => {}
             }
         }
     }
-    (b"Hello, Knox!\n".to_vec(), None)
-}
-
-fn get_return_string_literal(root: &Root, fn_name: &str) -> Option<String> {
-    for item in &root.items {
-        let knox_syntax::ast::Item::Fn(f) = item else {
-            continue;
-        };
-        if f.name != fn_name {
-            continue;
-        }
-        let [knox_syntax::ast::Stmt::Return(Some(expr), _)] = f.body.stmts.as_slice() else {
-            continue;
-        };
-        if let knox_syntax::ast::Expr::Literal(knox_syntax::ast::Literal::String(s), _) = expr {
-            return Some(s.clone());
-        }
-    }
-    None
-}
-
-fn encode_string_helper(data_offset: u32) -> Function {
-    let mut f = Function::new(vec![]);
-    f.instruction(&wasm_encoder::Instruction::I32Const(data_offset as i32));
-    f.instruction(&wasm_encoder::Instruction::End);
-    f
-}
-
-fn encode_main_simple(fd_write_idx: u32, via_helper: Option<(u32, u32)>) -> Function {
-    let mut f = Function::new(vec![]);
-    if let Some((helper_idx, len)) = via_helper {
-        // i32.store pops value then base; push base first so value (helper result) is on top
-        f.instruction(&wasm_encoder::Instruction::I32Const(8));
-        f.instruction(&wasm_encoder::Instruction::Call(helper_idx));
-        f.instruction(&wasm_encoder::Instruction::I32Store(wasm_encoder::MemArg {
-            offset: 0,
-            align: 2,
-            memory_index: 0,
-        }));
-        f.instruction(&wasm_encoder::Instruction::I32Const(12));
-        f.instruction(&wasm_encoder::Instruction::I32Const(len as i32));
-        f.instruction(&wasm_encoder::Instruction::I32Store(wasm_encoder::MemArg {
-            offset: 0,
-            align: 2,
-            memory_index: 0,
-        }));
-    }
-    // fd_write(fd=1, iovs=8, iovs_len=1, nwritten_ptr=0)
-    f.instruction(&wasm_encoder::Instruction::I32Const(1));
-    f.instruction(&wasm_encoder::Instruction::I32Const(8));
-    f.instruction(&wasm_encoder::Instruction::I32Const(1));
-    f.instruction(&wasm_encoder::Instruction::I32Const(0));
-    f.instruction(&wasm_encoder::Instruction::Call(fd_write_idx));
-    f.instruction(&wasm_encoder::Instruction::Drop);
-    f.instruction(&wasm_encoder::Instruction::End);
-    f
-}
-
-fn encode_start(main_fn_index: u32) -> Function {
-    let mut f = Function::new(vec![]);
-    f.instruction(&wasm_encoder::Instruction::Call(main_fn_index));
-    f.instruction(&wasm_encoder::Instruction::End);
-    f
+    "".to_string()
 }

@@ -1,14 +1,21 @@
-//! AST nodes for Knox.
+//! AST types for Knox (functions, structs, imports, expressions).
 
 use crate::span::Span;
 
-/// Root of a Knox source file.
+/// Visibility for cross-module access. Only exported items can be imported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Visibility {
+    Private,
+    Exported,
+}
+
+/// Root of a module: list of top-level items.
 #[derive(Clone, Debug)]
 pub struct Root {
     pub items: Vec<Item>,
-    pub span: Span,
 }
 
+/// Top-level item in a module.
 #[derive(Clone, Debug)]
 pub enum Item {
     Fn(FnDecl),
@@ -16,202 +23,199 @@ pub enum Item {
     Import(ImportDecl),
 }
 
+/// Function declaration.
 #[derive(Clone, Debug)]
 pub struct FnDecl {
+    pub span: Span,
+    pub vis: Visibility,
     pub name: String,
     pub params: Vec<Param>,
-    pub return_type: Type,
+    pub return_ty: Type,
     pub body: Block,
-    pub span: Span,
-    /// Whether this function is public (importable from other modules).
-    pub pub_vis: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct StructDecl {
-    pub name: String,
-    pub fields: Vec<StructField>,
-    pub span: Span,
-}
-
-#[derive(Clone, Debug)]
-pub struct StructField {
-    pub name: String,
-    pub ty: Type,
-    pub attrs: Option<FieldAttrs>,
-    pub span: Span,
-}
-
-/// Attribute for field accessor generation: @pub(get), @pub(set), @pub(get, set).
-#[derive(Clone, Debug, Default)]
-pub struct FieldAttrs {
-    pub get: bool,
-    pub set: bool,
-}
-
-#[derive(Clone, Debug)]
-pub struct ImportDecl {
-    /// Module path segments, e.g. ["auth", "token"] for auth::token.
-    pub path: Vec<String>,
-    /// Alias for the whole module, e.g. `import http as h` -> Some("h").
-    pub alias: Option<String>,
-    /// If Some, import only these names; if None, import the whole module.
-    pub items: Option<Vec<String>>,
-    pub span: Span,
 }
 
 #[derive(Clone, Debug)]
 pub struct Param {
     pub name: String,
     pub ty: Type,
+    pub mut_: bool,
+}
+
+/// Struct declaration.
+#[derive(Clone, Debug)]
+pub struct StructDecl {
     pub span: Span,
+    pub vis: Visibility,
+    pub name: String,
+    pub fields: Vec<StructField>,
 }
 
 #[derive(Clone, Debug)]
-pub struct Block {
-    pub stmts: Vec<Stmt>,
+pub struct StructField {
     pub span: Span,
+    pub name: String,
+    pub ty: Type,
+    pub attrs: FieldAttrs,
 }
 
+/// @pub(get), @pub(set), or @pub(get, set)
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FieldAttrs {
+    pub get: bool,
+    pub set: bool,
+}
+
+impl FieldAttrs {
+    /// True if this field has `@pub(get)` or `@pub(get, set)`.
+    pub fn has_pub_get(&self) -> bool {
+        self.get
+    }
+    /// True if this field has `@pub(set)` or `@pub(get, set)`.
+    pub fn has_pub_set(&self) -> bool {
+        self.set
+    }
+}
+
+/// Import declaration: `import user` or `import user as u`
 #[derive(Clone, Debug)]
-pub enum Stmt {
-    Let {
-        name: String,
-        mutability: bool,
-        type_annot: Option<Type>,
-        init: Expr,
-        span: Span,
-    },
-    Assign {
-        name: String,
-        expr: Expr,
-        span: Span,
-    },
-    AssignDeref {
-        name: String,
-        expr: Expr,
-        span: Span,
-    },
-    Expr(Expr),
-    Return(Option<Expr>, Span),
-}
-
-#[derive(Clone, Debug)]
-pub enum Expr {
-    Literal(Literal, Span),
-    Ident(String, Span),
-    /// Receiver.field (for getters and general field access).
-    FieldAccess {
-        receiver: Box<Expr>,
-        field: String,
-        span: Span,
-    },
-    Call {
-        callee: String,
-        args: Vec<Expr>,
-        span: Span,
-    },
-    BinaryOp {
-        op: BinOp,
-        left: Box<Expr>,
-        right: Box<Expr>,
-        span: Span,
-    },
-    UnaryOp {
-        op: UnOp,
-        expr: Box<Expr>,
-        span: Span,
-    },
-    Ref {
-        is_mut: bool,
-        target: String,
-        span: Span,
-    },
-    Deref {
-        expr: Box<Expr>,
-        span: Span,
-    },
-    If {
-        cond: Box<Expr>,
-        then_block: Block,
-        else_block: Option<Block>,
-        span: Span,
-    },
-    Match {
-        scrutinee: Box<Expr>,
-        arms: Vec<MatchArm>,
-        span: Span,
-    },
-    Block(Block, Span),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum BinOp {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Rem,
-    Eq,
-    Ne,
-    Lt,
-    Le,
-    Gt,
-    Ge,
-    And,
-    Or,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum UnOp {
-    Neg,
-    Not,
-}
-
-#[derive(Clone, Debug)]
-pub enum Literal {
-    Int(i64),
-    String(String),
-    Bool(bool),
-    Unit,
-}
-
-#[derive(Clone, Debug)]
-pub struct MatchArm {
-    pub pattern: MatchPattern,
-    pub body: Expr,
+pub struct ImportDecl {
     pub span: Span,
+    pub path: Vec<String>,
+    pub alias: Option<String>,
 }
 
-#[derive(Clone, Debug)]
-pub enum MatchPattern {
-    Wildcard(Span),
-    Literal(Literal, Span),
-    RecordDestruct {
-        fields: Vec<(String, Type)>,
-        span: Span,
-    },
-}
-
+/// Type reference.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
-    Unit,
-    U64,
     Int,
     String,
     Bool,
-    Dynamic,
-    Option(Box<Type>),
-    Result(Box<Type>, Box<Type>),
-    Named(String),        // for User, Account, Address, Error etc.
-    Ref(Box<Type>, bool), // &T or &mut T
+    Unit,
+    Path(Vec<String>),
+    /// Reference: &T or &mut T
+    Ref(bool, Box<Type>),
 }
 
-impl Type {
-    pub fn unit() -> Self {
-        Type::Unit
-    }
-    pub fn string() -> Self {
-        Type::String
+/// Block: `{ stmts }`
+#[derive(Clone, Debug)]
+pub struct Block {
+    pub span: Span,
+    pub stmts: Vec<Stmt>,
+}
+
+/// Match pattern (literal or _).
+#[derive(Clone, Debug)]
+pub enum MatchPattern {
+    Int(i64),
+    Bool(bool),
+    String(String),
+    Underscore,
+}
+
+/// Statement.
+#[derive(Clone, Debug)]
+pub enum Stmt {
+    Let {
+        span: Span,
+        mut_: bool,
+        name: String,
+        ty: Option<Type>,
+        init: Expr,
+    },
+    Expr {
+        span: Span,
+        expr: Expr,
+    },
+    Return {
+        span: Span,
+        value: Option<Expr>,
+    },
+}
+
+/// Expression.
+#[derive(Clone, Debug)]
+pub enum Expr {
+    IntLiteral {
+        span: Span,
+        value: i64,
+    },
+    StringLiteral {
+        span: Span,
+        value: String,
+    },
+    BoolLiteral {
+        span: Span,
+        value: bool,
+    },
+    Ident {
+        span: Span,
+        name: String,
+    },
+    /// Qualified path: user::User (type or module)
+    Path {
+        span: Span,
+        segments: Vec<String>,
+    },
+    /// Struct literal: user::User { name: "John", age: 20 }
+    StructLiteral {
+        span: Span,
+        path: Vec<String>,
+        fields: Vec<(String, Expr)>,
+    },
+    /// Method or function call: user.name() or user.set_age(30) or print(x)
+    Call {
+        span: Span,
+        receiver: Option<Box<Expr>>,
+        name: String,
+        args: Vec<Expr>,
+    },
+    /// Assignment: x = expr (receiver is the lvalue)
+    Assign {
+        span: Span,
+        target: Box<Expr>,
+        value: Box<Expr>,
+    },
+    /// match expr { pat => expr, ... }
+    Match {
+        span: Span,
+        value: Box<Expr>,
+        arms: Vec<(MatchPattern, Expr)>,
+    },
+    /// Dereference: *expr
+    Deref {
+        span: Span,
+        expr: Box<Expr>,
+    },
+    /// Reference: &expr or &mut expr
+    Ref {
+        span: Span,
+        mut_: bool,
+        expr: Box<Expr>,
+    },
+    /// Binary add: lhs + rhs
+    Add {
+        span: Span,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+}
+
+impl Expr {
+    /// Span of this expression in source.
+    pub fn span(&self) -> Span {
+        match self {
+            Expr::IntLiteral { span, .. }
+            | Expr::StringLiteral { span, .. }
+            | Expr::BoolLiteral { span, .. }
+            | Expr::Ident { span, .. }
+            | Expr::Path { span, .. }
+            | Expr::StructLiteral { span, .. }
+            | Expr::Call { span, .. }
+            | Expr::Assign { span, .. }
+            | Expr::Match { span, .. }
+            | Expr::Deref { span, .. }
+            | Expr::Ref { span, .. }
+            | Expr::Add { span, .. } => *span,
+        }
     }
 }

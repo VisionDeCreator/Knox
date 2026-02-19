@@ -129,6 +129,7 @@ impl<'a> Lexer<'a> {
                     "struct" => TokenKind::Struct,
                     "import" => TokenKind::Import,
                     "pub" => TokenKind::Pub,
+                    "export" => TokenKind::Export,
                     "as" => TokenKind::As,
                     "Ok" => TokenKind::Ok,
                     "Err" => TokenKind::Err,
@@ -306,5 +307,13 @@ mod tests {
         let src = "let x = 1;";
         let tokens = Lexer::new(src, FileId::new(0)).collect_tokens();
         assert!(matches!(tokens[4].kind, TokenKind::Semicolon));
+    }
+
+    #[test]
+    fn lex_export_keyword() {
+        let src = "export struct User { }";
+        let tokens = Lexer::new(src, FileId::new(0)).collect_tokens();
+        assert!(matches!(tokens[0].kind, TokenKind::Export));
+        assert!(matches!(tokens[1].kind, TokenKind::Struct));
     }
 }

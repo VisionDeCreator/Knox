@@ -1,0 +1,4 @@
+export struct User {
+  name: string @pub(get),
+  age: int @pub(get, set),
+}

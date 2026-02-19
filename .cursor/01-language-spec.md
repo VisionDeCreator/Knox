@@ -11,43 +11,47 @@
 - File path defines module path: `src/user.kx` → module `user`; `src/auth/token.kx` → module `auth::token`.
 - Import syntax: `import user`, `import user::User`, `import auth::token::{verify, sign}`, `import auth::token as token`.
 - First segment of import: if it matches a dependency name in `knox.toml` → external package; otherwise → internal module.
-- Only `pub` items can be imported across modules.
+- Only `export`ed items can be imported across modules.
 
 ## Lexical Rules
 
 - **Identifiers:** `[a-zA-Z_][a-zA-Z0-9_]*`
-- **Keywords:** `fn`, `let`, `mut`, `if`, `match`, `return`, `struct`, `import`, `pub`, `as`, `Ok`, `Err`, `Option`, `Result`, `dynamic`, `true`, `false`
+- **Keywords:** `fn`, `let`, `mut`, `if`, `match`, `return`, `struct`, `import`, `pub`, `export`, `as`, `impl`, `Ok`, `Err`, `Option`, `Result`, `dynamic`, `true`, `false`
 - **Symbols:** `( ) { } [ ] : , ; -> => . ? | _ @ ::`
 - **Comments:** `//` line comments, `/* */` block comments
 
 ## Functions
 
 ```text
-[pub] fn name(param: Type, ...) -> ReturnType { body }
+[export] fn name(param: Type, ...) -> ReturnType { body }
 ```
 
-- Optional `pub` for visibility across modules.
+- Optional `export` for visibility across modules.
 - Return type is required (use `()` for unit).
 
 ## Structs
 
 ```text
 struct Name {
-  field: Type [@pub(get)] [@pub(set)] [@pub(get, set)]
+  field: Type [@pub(get)] [@pub(set)] [@pub(get, set)],
+  ...
 }
 ```
 
+- **Struct fields are comma-delimited.** A trailing comma before `}` is allowed and recommended.
+- Semicolons inside struct field lists are invalid; the parser reports: "Struct fields must be separated by commas, not semicolons".
 - Fields are private by default.
-- `@pub(get)` generates a public getter: `pub fn field(self) -> Type`.
-- `@pub(set)` generates a public setter: `pub fn setFieldName(mut self, v: Type) -> ()` (camelCase: `age` → `setAge`, `user_id` → `setUserId`).
+- `@pub(get)` generates an exported getter: `fn field(self) -> Type`.
+- `@pub(set)` generates an exported setter: `fn set_field(mut self, v: Type) -> ()` (snake_case: `age` → `set_age`, `user_id` → `set_user_id`).
 - `@pub(get, set)` generates both.
 - Direct external field access is forbidden. Conflicting manual method → compiler error.
 
 ## Statements and Semicolons
 
-- Every statement must end with `;`. No implicit semicolons.
+- **Every statement** must end with `;`. No implicit semicolons.
 - Applies to: `let` declarations, assignments, expression statements, `return` statements, function calls used as statements.
-- Inside `{ }`, each statement must end with `;`.
+- Inside function/block `{ }`, each statement must end with `;`.
+- **Struct fields** use commas, not semicolons (see Structs above).
 - **match**: arms do not take a semicolon after the arm expression (e.g. `0 => 10,`). The whole `match` statement must end with `;` when used as a statement.
 
 ## Variables and Mutability

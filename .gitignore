@@ -3,6 +3,7 @@
 Cargo.lock
 *.wasm
 dist/
+.knox_run.wasm
 *.vsix
 .DS_Store
 *.log

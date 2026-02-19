@@ -14,3 +14,6 @@ knox_pkg = { path = "../knox_pkg" }
 knox_syntax = { path = "../knox_syntax" }
 clap = { version = "4", features = ["derive"] }
 which = "6"
+
+[dev-dependencies]
+wasmparser = "0.203"
