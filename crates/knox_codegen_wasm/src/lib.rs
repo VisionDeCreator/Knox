@@ -534,18 +534,20 @@ fn extract_print_message(ast: &Root) -> String {
 
 fn extract_first_print_string(block: &knox_syntax::ast::Block) -> String {
     for stmt in &block.stmts {
-        if let knox_syntax::ast::Stmt::Expr { expr, .. } = stmt {
-            if let knox_syntax::ast::Expr::Call {
-                name,
-                args,
-                receiver: None,
-                ..
-            } = expr
-            {
-                if name == "print" && args.len() == 1 {
-                    if let knox_syntax::ast::Expr::StringLiteral { value, .. } = &args[0] {
-                        return value.clone();
-                    }
+        if let knox_syntax::ast::Stmt::Expr {
+            expr:
+                knox_syntax::ast::Expr::Call {
+                    name,
+                    args,
+                    receiver: None,
+                    ..
+                },
+            ..
+        } = stmt
+        {
+            if name == "print" && args.len() == 1 {
+                if let knox_syntax::ast::Expr::StringLiteral { value, .. } = &args[0] {
+                    return value.clone();
                 }
             }
         }
